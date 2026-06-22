@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>安装专业估算概算自动编制系统</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- 登录页面 -->
+    <div id="loginPage" class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <div class="logo-icon">
+                    <i class="fas fa-drafting-compass"></i>
+                </div>
+                <h1>安装专业估算概算自动编制系统</h1>
+                <p>输入项目说明书 · 输出完整估算概算清单</p>
+            </div>
+            <form id="loginForm" class="login-form">
+                <div class="input-group">
+                    <i class="fas fa-user"></i>
+                    <input type="text" id="username" placeholder="请输入用户名" required>
+                </div>
+                <div class="input-group">
+                    <i class="fas fa-lock"></i>
+                    <input type="password" id="password" placeholder="请输入密码" required>
+                </div>
+                <div class="error-message" id="errorMessage"></div>
+                <button type="submit" class="login-btn">
+                    <i class="fas fa-sign-in-alt"></i> 登录系统
+                </button>
+            </form>
+            <div class="login-footer">
+                <p>测试账号：admin / user01 / user02</p>
+                <p>密码统一：123456</p>
+            </div>
+        </div>
+        <div class="background-animation">
+            <div class="floating-circle circle1"></div>
+            <div class="floating-circle circle2"></div>
+            <div class="floating-circle circle3"></div>
+        </div>
+    </div>
+
+    <!-- 主页面 -->
+    <div id="mainPage" class="main-container" style="display: none;">
+        <!-- 顶部导航 -->
+        <header class="main-header">
+            <div class="header-left">
+                <div class="logo">
+                    <i class="fas fa-drafting-compass"></i>
+                    <span>安装估算概算系统</span>
+                </div>
+            </div>
+            <nav class="main-nav">
+                <ul id="navList">
+                    <li class="active" data-section="upload"><i class="fas fa-upload"></i>说明书上传</li>
+                    <li data-section="info"><i class="fas fa-building"></i>项目信息</li>
+                    <li data-section="water"><i class="fas fa-tint"></i>给排水</li>
+                    <li data-section="hvac"><i class="fas fa-wind"></i>暖通</li>
+                    <li data-section="electric"><i class="fas fa-bolt"></i>电气</li>
+                    <li data-section="summary"><i class="fas fa-chart-pie"></i>指标汇总</li>
+                </ul>
+            </nav>
+            <div class="header-right">
+                <div class="user-info">
+                    <i class="fas fa-user-circle"></i>
+                    <span id="currentUser">用户</span>
+                </div>
+                <button class="logout-btn" onclick="logout()">
+                    <i class="fas fa-sign-out-alt"></i>退出
+                </button>
+            </div>
+        </header>
+
+        <!-- 内容区域 -->
+        <main class="main-content">
+            <!-- 说明书上传 -->
+            <section id="section-upload" class="content-section active">
+                <div class="section-header">
+                    <h2><i class="fas fa-upload"></i>估算概算说明书上传</h2>
+                    <p>上传项目说明书（Word/PDF），系统自动提取关键信息并生成模拟清单</p>
+                </div>
+                <div class="upload-section">
+                    <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+                        <div class="upload-icon">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                        </div>
+                        <div class="upload-text">点击或拖拽上传估算概算说明书</div>
+                        <div class="upload-hint">支持 .docx .doc .pdf 格式</div>
+                        <div class="upload-hint">文件大小不超过 50MB</div>
+                        <input type="file" id="fileInput" accept=".docx,.doc,.pdf" style="display:none" onchange="handleFileSelect(event)">
+                    </div>
+                    <div class="upload-status" id="uploadStatus" style="display:none;">
+                        <div class="status-info">
+                            <i class="fas fa-file-alt"></i>
+                            <span id="fileName"></span>
+                            <span id="fileSize"></span>
+                        </div>
+                        <div class="status-progress">
+                            <div class="progress-bar" id="progressBar">
+                                <div class="progress-fill" id="progressFill"></div>
+                            </div>
+                            <span id="progressText">0%</span>
+                        </div>
+                        <div class="status-message" id="statusMessage"></div>
+                    </div>
+                    <div class="process-steps" id="processSteps" style="display:none;">
+                        <div class="step completed" id="step1">
+                            <div class="step-icon"><i class="fas fa-check"></i></div>
+                            <div class="step-text">文件上传完成</div>
+                        </div>
+                        <div class="step-line"></div>
+                        <div class="step" id="step2">
+                            <div class="step-icon"><i class="fas fa-search"></i></div>
+                            <div class="step-text">正在提取项目信息...</div>
+                        </div>
+                        <div class="step-line"></div>
+                        <div class="step" id="step3">
+                            <div class="step-icon"><i class="fas fa-list"></i></div>
+                            <div class="step-text">正在生成模拟清单...</div>
+                        </div>
+                        <div class="step-line"></div>
+                        <div class="step" id="step4">
+                            <div class="step-icon"><i class="fas fa-calculator"></i></div>
+                            <div class="step-text">正在计算指标...</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 项目信息 -->
+            <section id="section-info" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-building"></i>项目关键信息</h2>
+                    <p>自动提取的项目基本信息，可手动修改</p>
+                </div>
+                <div class="info-grid">
+                    <div class="info-card">
+                        <h3><i class="fas fa-file-signature"></i>基本信息</h3>
+                        <div class="info-item">
+                            <label>项目名称</label>
+                            <input type="text" id="projectName" placeholder="请输入项目名称">
+                        </div>
+                        <div class="info-item">
+                            <label>项目地址</label>
+                            <input type="text" id="projectAddress" placeholder="请输入项目地址">
+                        </div>
+                        <div class="info-item">
+                            <label>建筑结构</label>
+                            <select id="buildingStructure">
+                                <option value="">请选择</option>
+                                <option value="框架结构">框架结构</option>
+                                <option value="框架剪力墙">框架剪力墙</option>
+                                <option value="剪力墙">剪力墙</option>
+                                <option value="钢结构">钢结构</option>
+                                <option value="砖混结构">砖混结构</option>
+                            </select>
+                        </div>
+                        <div class="info-item">
+                            <label>地上/地下层数</label>
+                            <div class="input-row">
+                                <input type="text" id="floorsAbove" placeholder="地上层数">
+                                <span>/</span>
+                                <input type="text" id="floorsBelow" placeholder="地下层数">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="info-card">
+                        <h3><i class="fas fa-building"></i>栋号信息</h3>
+                        <div id="buildingList">
+                            <div class="building-item" data-index="0">
+                                <div class="building-header">
+                                    <span class="building-name">栋号 A</span>
+                                    <button class="btn-danger btn-sm" onclick="removeBuilding(this)" style="display:none;"><i class="fas fa-trash"></i></button>
+                                </div>
+                                <div class="info-item">
+                                    <label>栋号名称</label>
+                                    <input type="text" class="building-name-input" value="A座" placeholder="栋号名称">
+                                </div>
+                                <div class="info-item">
+                                    <label>建筑面积（㎡）</label>
+                                    <input type="number" class="building-area-input" placeholder="建筑面积">
+                                </div>
+                                <div class="info-item">
+                                    <label>建筑高度（m）</label>
+                                    <input type="number" class="building-height-input" placeholder="建筑高度">
+                                </div>
+                            </div>
+                        </div>
+                        <button class="btn-secondary" onclick="addBuilding()"><i class="fas fa-plus"></i> 添加栋号</button>
+                    </div>
+                    <div class="info-card">
+                        <h3><i class="fas fa-industry"></i>业态信息</h3>
+                        <div class="info-item">
+                            <label>项目业态</label>
+                            <select id="businessType" onchange="onBusinessTypeChange()">
+                                <option value="">请选择业态类型</option>
+                                <option value="普通住宅">普通住宅</option>
+                                <option value="高端住宅">高端住宅</option>
+                                <option value="别墅">别墅</option>
+                                <option value="普通办公楼">普通办公楼</option>
+                                <option value="甲级写字楼">甲级写字楼</option>
+                                <option value="商业综合体">商业综合体</option>
+                                <option value="购物中心">购物中心</option>
+                                <option value="快捷酒店">快捷酒店</option>
+                                <option value="三星级酒店">三星级酒店</option>
+                                <option value="四星级酒店">四星级酒店</option>
+                                <option value="五星级酒店">五星级酒店</option>
+                                <option value="幼儿园">幼儿园</option>
+                                <option value="中小学">中小学</option>
+                                <option value="高校教学楼">高校教学楼</option>
+                                <option value="社区医院">社区医院</option>
+                                <option value="二甲医院">二甲医院</option>
+                                <option value="三甲医院">三甲医院</option>
+                                <option value="体育馆">体育馆</option>
+                                <option value="游泳馆">游泳馆</option>
+                                <option value="图书馆">图书馆</option>
+                                <option value="博物馆">博物馆</option>
+                                <option value="钢结构厂房">钢结构厂房</option>
+                                <option value="框架厂房">框架厂房</option>
+                                <option value="洁净厂房">洁净厂房</option>
+                                <option value="冷链仓库">冷链仓库</option>
+                                <option value="火车站">火车站</option>
+                                <option value="高铁站">高铁站</option>
+                                <option value="航站楼">航站楼</option>
+                                <option value="研发楼">研发楼</option>
+                                <option value="保障性住房">保障性住房</option>
+                                <option value="地下车库">地下车库/人防工程</option>
+                            </select>
+                        </div>
+                        <div class="info-item">
+                            <label>地区系数</label>
+                            <select id="regionFactor">
+                                <option value="1.0">一线城市（北上广深）</option>
+                                <option value="0.95" selected>二线城市（省会城市）</option>
+                                <option value="0.88">三线城市</option>
+                                <option value="0.80">四线城市</option>
+                                <option value="0.72">县城</option>
+                            </select>
+                        </div>
+                        <div class="indicator-preview" id="indicatorPreview">
+                            <div class="preview-title">参考指标（元/㎡）</div>
+                            <div class="preview-value" id="previewValue">选择业态后显示</div>
+                        </div>
+                    </div>
+                    <div class="info-card full-width">
+                        <h3><i class="fas fa-cogs"></i>机电专业重点信息</h3>
+                        <div class="specs-grid">
+                            <div class="spec-item">
+                                <h4><i class="fas fa-tint"></i>给排水</h4>
+                                <div class="info-item">
+                                    <label>供水形式</label>
+                                    <select id="waterSupply">
+                                        <option value="">请选择</option>
+                                        <option value="市政直供">市政直供</option>
+                                        <option value="变频供水">变频供水</option>
+                                        <option value="水箱+变频">水箱+变频</option>
+                                        <option value="无负压供水">无负压供水</option>
+                                    </select>
+                                </div>
+                                <div class="info-item">
+                                    <label>热源形式</label>
+                                    <select id="hotWater">
+                                        <option value="">请选择</option>
+                                        <option value="太阳能">太阳能</option>
+                                        <option value="燃气热水器">燃气热水器</option>
+                                        <option value="空气源热泵">空气源热泵</option>
+                                        <option value="市政热力">市政热力</option>
+                                        <option value="电热水器">电热水器</option>
+                                    </select>
+                                </div>
+                                <div class="info-item">
+                                    <label>消防系统</label>
+                                    <div class="checkbox-group">
+                                        <label><input type="checkbox" value="室内消火栓"> 室内消火栓</label>
+                                        <label><input type="checkbox" value="自动喷淋"> 自动喷淋</label>
+                                        <label><input type="checkbox" value="气体灭火"> 气体灭火</label>
+                                        <label><input type="checkbox" value="水炮"> 水炮</label>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>其他备注</label>
+                                    <input type="text" id="waterNote" placeholder="其他给排水特殊要求">
+                                </div>
+                            </div>
+                            <div class="spec-item">
+                                <h4><i class="fas fa-wind"></i>暖通</h4>
+                                <div class="info-item">
+                                    <label>空调形式</label>
+                                    <select id="acType">
+                                        <option value="">请选择</option>
+                                        <option value="多联机">多联机（VRF）</option>
+                                        <option value="风机盘管+新风">风机盘管+新风</option>
+                                        <option value="全空气系统">全空气系统</option>
+                                        <option value="分体空调">分体空调</option>
+                                        <option value="恒温恒湿">恒温恒湿空调</option>
+                                        <option value="洁净空调">洁净空调</option>
+                                    </select>
+                                </div>
+                                <div class="info-item">
+                                    <label>热源形式</label>
+                                    <select id="heatingType">
+                                        <option value="">请选择</option>
+                                        <option value="市政热力">市政热力</option>
+                                        <option value="燃气锅炉">燃气锅炉</option>
+                                        <option value="空气源热泵">空气源热泵</option>
+                                        <option value="地源热泵">地源热泵</option>
+                                        <option value="市政热力+锅炉调峰">市政热力+锅炉调峰</option>
+                                    </select>
+                                </div>
+                                <div class="info-item">
+                                    <label>防排烟系统</label>
+                                    <div class="checkbox-group">
+                                        <label><input type="checkbox" value="正压送风"> 正压送风</label>
+                                        <label><input type="checkbox" value="机械排烟"> 机械排烟</label>
+                                        <label><input type="checkbox" value="补风系统"> 补风系统</label>
+                                        <label><input type="checkbox" value="排烟窗"> 排烟窗</label>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>其他备注</label>
+                                    <input type="text" id="hvacNote" placeholder="其他暖通特殊要求">
+                                </div>
+                            </div>
+                            <div class="spec-item">
+                                <h4><i class="fas fa-bolt"></i>电气</h4>
+                                <div class="info-item">
+                                    <label>配电形式</label>
+                                    <select id="powerType">
+                                        <option value="">请选择</option>
+                                        <option value="树干式">树干式</option>
+                                        <option value="放射式">放射式</option>
+                                        <option value="混合式">混合式</option>
+                                    </select>
+                                </div>
+                                <div class="info-item">
+                                    <label>变压器容量(kVA)</label>
+                                    <input type="text" id="transformerCapacity" placeholder="如：2×800">
+                                </div>
+                                <div class="info-item">
+                                    <label>备用电源</label>
+                                    <div class="checkbox-group">
+                                        <label><input type="checkbox" value="柴发"> 柴发</label>
+                                        <label><input type="checkbox" value="EPS"> EPS</label>
+                                        <label><input type="checkbox" value="UPS"> UPS</label>
+                                        <label><input type="checkbox" value="双电源切换"> 双电源切换</label>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>其他备注</label>
+                                    <input type="text" id="electricNote" placeholder="其他电气特殊要求">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="button-group full-width">
+                        <button class="btn-primary" onclick="generateEstimate()"><i class="fas fa-play"></i> 生成估算概算</button>
+                        <button class="btn-secondary" onclick="resetProject()"><i class="fas fa-redo"></i> 重置</button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 给排水清单 -->
+            <section id="section-water" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-tint"></i>给排水工程模拟清单</h2>
+                    <div class="header-actions">
+                        <span class="indicator-tag" id="waterTotalArea">总建筑面积：-</span>
+                        <span class="indicator-tag highlight" id="waterTotalCost">估算总价：-</span>
+                        <button class="btn-primary btn-sm" onclick="exportToExcel('water')"><i class="fas fa-file-excel"></i> 导出Excel</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="waterTable">
+                        <thead>
+                            <tr>
+                                <th>序号</th>
+                                <th>清单编码</th>
+                                <th>清单名称</th>
+                                <th>单位</th>
+                                <th>工程量</th>
+                                <th>综合单价(元)</th>
+                                <th>合价(元)</th>
+                                <th>备注</th>
+                            </tr>
+                        </thead>
+                        <tbody id="waterTableBody">
+                            <tr><td colspan="8" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="cost-summary" id="waterCostSummary" style="display:none;">
+                    <div class="summary-card">
+                        <div class="summary-label">给排水单方造价</div>
+                        <div class="summary-value" id="waterCostPerSqm">- 元/㎡</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">占安装总造价比例</div>
+                        <div class="summary-value" id="waterCostRatio">- %</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 暖通清单 -->
+            <section id="section-hvac" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-wind"></i>暖通工程模拟清单</h2>
+                    <div class="header-actions">
+                        <span class="indicator-tag" id="hvacTotalArea">总建筑面积：-</span>
+                        <span class="indicator-tag highlight" id="hvacTotalCost">估算总价：-</span>
+                        <button class="btn-primary btn-sm" onclick="exportToExcel('hvac')"><i class="fas fa-file-excel"></i> 导出Excel</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="hvacTable">
+                        <thead>
+                            <tr>
+                                <th>序号</th>
+                                <th>清单编码</th>
+                                <th>清单名称</th>
+                                <th>单位</th>
+                                <th>工程量</th>
+                                <th>综合单价(元)</th>
+                                <th>合价(元)</th>
+                                <th>备注</th>
+                            </tr>
+                        </thead>
+                        <tbody id="hvacTableBody">
+                            <tr><td colspan="8" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="cost-summary" id="hvacCostSummary" style="display:none;">
+                    <div class="summary-card">
+                        <div class="summary-label">暖通单方造价</div>
+                        <div class="summary-value" id="hvacCostPerSqm">- 元/㎡</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">占安装总造价比例</div>
+                        <div class="summary-value" id="hvacCostRatio">- %</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 电气清单 -->
+            <section id="section-electric" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-bolt"></i>电气工程模拟清单</h2>
+                    <div class="header-actions">
+                        <span class="indicator-tag" id="electricTotalArea">总建筑面积：-</span>
+                        <span class="indicator-tag highlight" id="electricTotalCost">估算总价：-</span>
+                        <button class="btn-primary btn-sm" onclick="exportToExcel('electric')"><i class="fas fa-file-excel"></i> 导出Excel</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="electricTable">
+                        <thead>
+                            <tr>
+                                <th>序号</th>
+                                <th>清单编码</th>
+                                <th>清单名称</th>
+                                <th>单位</th>
+                                <th>工程量</th>
+                                <th>综合单价(元)</th>
+                                <th>合价(元)</th>
+                                <th>备注</th>
+                            </tr>
+                        </thead>
+                        <tbody id="electricTableBody">
+                            <tr><td colspan="8" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="cost-summary" id="electricCostSummary" style="display:none;">
+                    <div class="summary-card">
+                        <div class="summary-label">电气单方造价</div>
+                        <div class="summary-value" id="electricCostPerSqm">- 元/㎡</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">占安装总造价比例</div>
+                        <div class="summary-value" id="electricCostRatio">- %</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 指标汇总 -->
+            <section id="section-summary" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-chart-pie"></i>指标汇总</h2>
+                    <div class="header-actions">
+                        <button class="btn-primary" onclick="exportAllToExcel()"><i class="fas fa-file-excel"></i> 导出全部Excel</button>
+                    </div>
+                </div>
+                <div class="summary-grid">
+                    <div class="summary-overview">
+                        <div class="overview-title">项目总览</div>
+                        <div class="overview-item">
+                            <span class="overview-label">项目名称</span>
+                            <span class="overview-value" id="summaryProjectName">-</span>
+                        </div>
+                        <div class="overview-item">
+                            <span class="overview-label">业态类型</span>
+                            <span class="overview-value" id="summaryBusinessType">-</span>
+                        </div>
+                        <div class="overview-item">
+                            <span class="overview-label">栋号数量</span>
+                            <span class="overview-value" id="summaryBuildingCount">-</span>
+                        </div>
+                        <div class="overview-item">
+                            <span class="overview-label">总面积</span>
+                            <span class="overview-value" id="summaryTotalArea">- ㎡</span>
+                        </div>
+                        <div class="overview-item highlight">
+                            <span class="overview-label">安装总估算价</span>
+                            <span class="overview-value" id="summaryTotalCost">- 万元</span>
+                        </div>
+                        <div class="overview-item highlight">
+                            <span class="overview-label">综合单方造价</span>
+                            <span class="overview-value" id="summaryCostPerSqm">- 元/㎡</span>
+                        </div>
+                    </div>
+                    <div class="summary-chart">
+                        <div class="chart-title">专业造价占比</div>
+                        <div class="chart-placeholder" id="chartPlaceholder">
+                            <i class="fas fa-chart-pie"></i>
+                            <p>生成估算后显示占比图</p>
+                        </div>
+                        <div class="pie-chart" id="pieChart" style="display:none;">
+                            <div class="pie-legend">
+                                <div class="legend-item">
+                                    <span class="legend-color" style="background:#1a5e63"></span>
+                                    <span class="legend-label">给排水</span>
+                                    <span class="legend-value" id="legendWater">-</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color" style="background:#4ecdc4"></span>
+                                    <span class="legend-label">暖通</span>
+                                    <span class="legend-value" id="legendHvac">-</span>
+                                </div>
+                                <div class="legend-item">
+                                    <span class="legend-color" style="background:#ff6b6b"></span>
+                                    <span class="legend-label">电气</span>
+                                    <span class="legend-value" id="legendElectric">-</span>
+                                </div>
+                            </div>
+                            <canvas id="pieCanvas" width="200" height="200"></canvas>
+                        </div>
+                    </div>
+                </div>
+                <!-- 各栋号指标表 -->
+                <div class="building-summary-section">
+                    <h3><i class="fas fa-building"></i>各栋号指标</h3>
+                    <div class="table-container">
+                        <table class="data-table" id="buildingSummaryTable">
+                            <thead>
+                                <tr>
+                                    <th>栋号</th>
+                                    <th>建筑面积(㎡)</th>
+                                    <th>给排水(元/㎡)</th>
+                                    <th>暖通(元/㎡)</th>
+                                    <th>电气(元/㎡)</th>
+                                    <th>小计(元/㎡)</th>
+                                    <th>估算价(万元)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="buildingSummaryBody">
+                                <tr><td colspan="7" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <!-- 专业汇总表 -->
+                <div class="spec-summary-section">
+                    <h3><i class="fas fa-th-large"></i>专业汇总</h3>
+                    <div class="table-container">
+                        <table class="data-table" id="specSummaryTable">
+                            <thead>
+                                <tr>
+                                    <th>专业</th>
+                                    <th>估算价(万元)</th>
+                                    <th>单方造价(元/㎡)</th>
+                                    <th>占比</th>
+                                </tr>
+                            </thead>
+                            <tbody id="specSummaryBody">
+                                <tr><td colspan="4" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 通用模态框 -->
+    <div id="modal" class="modal" style="display:none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modalTitle">提示</h3>
+                <button class="modal-close" onclick="closeModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body" id="modalBody"></div>
+            <div class="modal-footer" id="modalFooter"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</body>
+</html>
