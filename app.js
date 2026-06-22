@@ -133,281 +133,147 @@ function extractProjectInfo(text) {
         belowArea: 0,
         classes: 0,
         buildings: [],
-        heating: '',
-        coolHeatSource: '',
-        hotWater: '',
-        fireProtection: [],
-        smokeControl: [],
-        power: '',
-        transformer: '',
-        intelligent: [],
-        hasPool: false,
-        hasCivilDefense: false,
         bizType: '学校类',
-        waterSupply: '',
-        acSystem: '',
+        mep: {
+            给排水: { 消防: [], 热水: '', 其他: [] },
+            暖通: { 冷热源: '', 供暖: '', 空调: '', 防排烟: '' },
+            电气: { 变压器: '', 供电: '', 照明: '', 消防电: [], 智能化: [] }
+        },
         warnings: []
     };
 
-    // ====== 预处理：统一换行符 ======
     text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 
-    // ====== A. 提取初中部专属指标表区域（关键修复！）======
-    // 初中部说明书有两套指标：初中部专属（20,100㎡）+ 全校汇总（80,100㎡）
-    // 必须优先找"5.4初中部经济技术指标表"这个标题
-    let jzbSection = '';
-    const jzbSectionMatch = text.match(/5\.4初中部经济技术指标表/);
-    if (jzbSectionMatch) {
-        const startPos = jzbSectionMatch.index;
-        // 找下一个章节标题之前的内容
-        const nextSection = text.slice(startPos + 10).match(/\n##\s/);
-        const endPos = nextSection 
-            ? startPos + 10 + nextSection.index 
-            : startPos + 5000;
-        jzbSection = text.slice(startPos, endPos);
-    }
-
-    // 如果没找到5.4标题，尝试其他方式找初中部指标表
-    if (!jzbSection) {
-        const altMatch = text.match(/初中部[^\n]*经济技术指标表/);
-        if (altMatch) {
-            const startPos = altMatch.index;
-            jzbSection = text.slice(startPos, startPos + 5000);
+    // ====== 核心修复：找到正确的指标表区域 ======
+    // 初中部说明书有两套指标表，必须定位到"5.4初中部经济技术指标表"
+    let tableSection = '';
+    const tableHeaderPos = text.indexOf('5.4初中部经济技术指标表');
+    if (tableHeaderPos >= 0) {
+        // 从5.4标题开始，到下一个章节标题前（下一个章节是第五章给排水专业设计说明）
+        const afterHeader = text.substring(tableHeaderPos);
+        // 找章节标题（# 第X章 或 第五章给排水专业设计说明 或 # 第2章）
+        const nextChapterMatch = afterHeader.match(/\n#{1,3}\s*(?:第[一二三四五六七八九十\d]+章|第[一二三四五六七八九十\d]+节|初中部经济技术指标表)/);
+        if (nextChapterMatch && nextChapterMatch.index > 50) {
+            tableSection = afterHeader.substring(0, nextChapterMatch.index);
+        } else {
+            // fallback：取标题后5000字符
+            tableSection = afterHeader.substring(0, 5000);
         }
     }
 
-    // ====== B. 项目名称 ======
-    const namePatterns = [
-        /(天津市[^\n]{0,30}完全中学[^\n]{0,30})/,
-        /(天津市[^\n]{0,20}(?:初中部|高中部)[^\n]{0,20})/,
-        /项目名称[：:]\s*([^\n]{5,50})/
-    ];
-    for (const p of namePatterns) {
-        const m = text.match(p);
-        if (m) { 
-            info.name = m[1].replace(/\s+/g,'').substring(0,50); 
-            break; 
-        }
-    }
-    if (!info.name) info.warnings.push('项目名称未能识别');
+    // 去掉<br/> HTML实体标签
+    tableSection = tableSection.replace(/<br\s*\/?>/gi, '');
 
-    // ====== C. 在初中部专属区域内提取栋号和面积 ======
-    // mammoth解析后的表格格式: |列1|列2|列3|列4|数字|
-    // 列1可能是"其中"或空，列2是中文名，列3是中文名重复，列4是单位，列5是数字
-    
-    if (jzbSection) {
-        // 1. 找综合教学楼（初中部）面积
-        // 格式: |其中|综合教学楼（初中部）|综合教学楼（初中部）|m2|14630|
-        // 去掉<br/>标签的影响
-        const jzxClean = jzbSection.replace(/<br\s*\/?>/gi, '');
-        const jzxMatch = jzxClean.match(/\|其中\|综合教学楼[^|]*\|[^|]*\|m2\|(\d{5})\|/);
-        if (jzxMatch) {
-            const area = parseInt(jzxMatch[1]);
-            if (area > 1000 && area < 30000) {
-                info.buildings.push({ 
-                    name: '综合教学楼', 
-                    area: area, 
-                    floors: '地上5层局部4层' 
-                });
-            }
-        }
-
-        // 2. 找地下车库及设备用房面积
-        // 格式: |其中|地下车库及设备用房（初中部）|地下车库及设备用房（初中部）|m2|5000|
-        const ugMatch = jzxClean.match(/\|其中\|地下车库[^|]*\|[^|]*\|m2\|(\d{4})\|/);
-        if (ugMatch) {
-            const area = parseInt(ugMatch[1]);
-            if (area > 0 && area < 20000) {
-                info.buildings.push({ 
-                    name: '地下车库及设备用房', 
-                    area: area, 
-                    floors: '地下1层' 
-                });
-            }
-        }
-
-        // 3. 初中部总建筑面积（优先使用表格中的20100）
-        const jzAreaMatch = jzxClean.match(/\|建筑面积\|建筑面积\|建筑面积\|m2\|(\d{5})\|/);
-        if (jzAreaMatch) {
-            info.totalArea = parseInt(jzAreaMatch[1]);
-        }
-
-        // 4. 初中部地上建筑面积
-        const aboveMatch = jzxClean.match(/\|地上建筑面积\|地上建筑面积\|地上建筑面积\|m2\|(\d{5})\|/);
-        if (aboveMatch) {
-            info.aboveArea = parseInt(aboveMatch[1]);
-        }
-
-        // 5. 初中部地下建筑面积
-        const belowMatch = jzxClean.match(/\|地下建筑面积\|地下建筑面积\|地下建筑面积\|m2\|(\d{4})\|/);
-        if (belowMatch) {
-            info.belowArea = parseInt(belowMatch[1]);
-        }
-    }
-
-    // ====== D. 如果初中部区域没找到栋号，尝试全文搜索 ======
-    if (info.buildings.length === 0) {
-        // 综合教学楼
-        const jzxPatterns = [
-            /综合教学楼[（(]初中部[）)]?[^\d]*(\d{5})平方米/,
-            /综合教学楼[（(]初中部[）)]?[^\d]*建筑面积[为]?(\d{5})平方米/,
-            /综合教学楼[^\d]*(\d{5})㎡/
-        ];
-        for (const p of jzxPatterns) {
-            const m = text.match(p);
-            if (m) {
-                const area = parseInt(m[1] || m[2]);
-                if (area > 1000 && area < 30000) {
-                    info.buildings.push({ name: '综合教学楼', area, floors: '地上5层局部4层' });
-                    break;
-                }
-            }
-        }
-
-        // 地下车库
-        const ugPatterns = [
-            /地下车库[^\d]*(\d{4})平方米/,
-            /地下车库及设备用房[^\d]*(\d{4})平方米/,
-            /地下建筑面积[^\d]*(\d{4})平方米/
-        ];
-        for (const p of ugPatterns) {
-            const m = text.match(p);
-            if (m) {
-                const area = parseInt(m[1]);
-                if (area > 0 && area < 20000 && !info.buildings.find(b => b.name.includes('地下'))) {
-                    info.buildings.push({ name: '地下车库及设备用房', area, floors: '地下1层' });
-                    break;
-                }
-            }
-        }
-    }
-
-    // ====== E. 修正总面积：如果栋号齐全，用栋号之和 ======
-    if (info.buildings.length >= 2) {
-        const calcTotal = info.buildings.reduce((sum, b) => sum + b.area, 0);
-        // 如果计算值与表格值接近（误差10%内），优先信任表格值
-        if (Math.abs(calcTotal - info.totalArea) / info.totalArea < 0.1 || info.totalArea === 0) {
-            info.totalArea = calcTotal;
-        }
-        // 修正地上/地下分类
-        const aboveBuilding = info.buildings.find(b => !b.name.includes('地下'));
-        const belowBuilding = info.buildings.find(b => b.name.includes('地下'));
-        if (aboveBuilding && !info.aboveArea) {
-            info.aboveArea = aboveBuilding.area;
-        }
-        if (belowBuilding && !info.belowArea) {
-            info.belowArea = belowBuilding.area;
-        }
-    } else if (info.buildings.length === 1 && !info.totalArea) {
-        info.totalArea = info.buildings[0].area;
-    }
-
-    // ====== F. 教学班数 ======
-    const classPatterns = [
-        /初中部[^\d]*(\d{2})[^\d]*班/,
-        /(?:初中部|高中部)[^\d]*(\d{2})[^\d]*教学班/,
-        /共(\d{2})[^\d]*班(?:教学班)?/,
-        /(\d{2})[^\d]*个教学班/
-    ];
-    for (const p of classPatterns) {
-        const m = text.match(p);
-        if (m) { 
-            info.classes = parseInt(m[1]); 
-            break; 
-        }
-    }
-
-    // ====== G. 宿舍楼（高中部可能有，初中部通常没有）======
-    if (info.buildings.length < 3) {
-        const dormMatch = text.match(/学生宿舍楼[^\d]*(\d{4,6})(?:平方米|㎡)/);
-        if (dormMatch && !info.buildings.find(b => b.name.includes('宿舍'))) {
-            const area = parseInt(dormMatch[1]);
-            if (area > 1000) {
-                info.buildings.push({ name: '学生宿舍楼', area, floors: '地上6层' });
-            }
-        }
-    }
-
-    // ====== H. 食堂风雨操场 ======
-    if (info.buildings.length < 4) {
-        const canteenMatch = text.match(/食堂(?:风雨操场)?[^\d]*(\d{4,6})(?:平方米|㎡)/);
-        if (canteenMatch && !info.buildings.find(b => b.name.includes('食堂'))) {
-            const area = parseInt(canteenMatch[1]);
-            if (area > 0) {
-                info.buildings.push({ name: '食堂及风雨操场', area, floors: '地上2层' });
-            }
-        }
-    }
-
-    // ====== I. 机电系统信息 ======
-    
-    // 消防系统 - 核心关键词
-    const fireMatch = text.match(/(?:消火栓|自动喷淋|气体灭火|水炮|水喷雾)[系统]?/g);
-    if (fireMatch) {
-        const unique = [...new Set(fireMatch.map(f => f.trim().replace('系统', '')))].slice(0, 4);
-        info.fireProtection = unique.length > 0 ? unique : ['未识别'];
+    // ====== A. 总建筑面积 ======
+    const jzAreaMatch = tableSection.match(/\|建筑面积\|建筑面积\|建筑面积\|m2\|(\d{5})\|/);
+    if (jzAreaMatch) {
+        info.totalArea = parseInt(jzAreaMatch[1]);
     } else {
-        info.fireProtection = ['未识别'];
+        // 备选：从栋号之和计算
+        info.warnings.push('总建筑面积未能精确提取');
     }
 
-    // 供暖系统
-    const heatingMatch = text.match(/(?:散热器|地采暖|地源热泵|空气源热泵|暖气片|供暖)[^\n，,。]{0,20}/);
-    if (heatingMatch) {
-        info.heating = heatingMatch[0].substring(0, 30).trim();
+    // ====== B. 地上地下面积 ======
+    const aboveMatch = tableSection.match(/\|地上建筑面积\|地上建筑面积\|地上建筑面积\|m2\|(\d{5})\|/);
+    if (aboveMatch) info.aboveArea = parseInt(aboveMatch[1]);
+
+    const belowMatch = tableSection.match(/\|地下建筑面积\|地下建筑面积\|地下建筑面积\|m2\|(\d{4,5})\|/);
+    if (belowMatch) info.belowArea = parseInt(belowMatch[1]);
+
+    // ====== C. 栋号提取 ======
+    // 综合教学楼
+    const jzxMatch = tableSection.match(/\|其中\|综合教学楼[^|]*\|[^|]*\|m2\|(\d{5})\|/);
+    if (jzxMatch) {
+        const area = parseInt(jzxMatch[1]);
+        if (area > 1000 && area < 30000) {
+            info.buildings.push({ name: '综合教学楼', area, floors: '地上5层局部4层' });
+        }
     }
 
-    // 冷热源
-    const coolHeatMatch = text.match(/(?:地源热泵|空气源热泵|VRV|冷水机组|分体空调|多联机)[^\n，,。]{0,20}/);
-    if (coolHeatMatch) {
-        info.coolHeatSource = coolHeatMatch[0].substring(0, 30).trim();
+    // 地下车库及设备用房
+    const ugMatch = tableSection.match(/\|其中\|地下车库[^|]*\|[^|]*\|m2\|(\d{4,5})\|/);
+    if (ugMatch) {
+        const area = parseInt(ugMatch[1]);
+        if (area > 0 && area < 20000) {
+            info.buildings.push({ name: '地下车库及设备用房', area, floors: '地下1层' });
+        }
     }
 
-    // 热水系统
-    const hotWaterMatch = text.match(/(?:太阳能|空气源热泵|燃气热水|电热水器|集中热水)[^\n，,。]{0,20}/);
-    if (hotWaterMatch) {
-        info.hotWater = hotWaterMatch[0].substring(0, 30).trim();
+    // 如果栋号数为0，用备选文本方式
+    if (info.buildings.length === 0) {
+        // 文本格式：14630平方米 或 建筑面积为14630平方米
+        const jzxTextMatch = text.match(/综合教学楼[^0-9]*?(\d{5})\s*(?:平方米|㎡)/);
+        if (jzxTextMatch) {
+            info.buildings.push({ name: '综合教学楼', area: parseInt(jzxTextMatch[1]), floors: '地上5层' });
+        }
     }
 
-    // 变压器容量
-    const transformerMatch = text.match(/SCB\d+[^0-9]*(\d+)kVA|(\d+)kVA[^变压器]*变压器/);
-    if (transformerMatch) {
-        info.transformer = (transformerMatch[1] || transformerMatch[2]) + 'kVA';
+    // ====== D. 项目名称 ======
+    const nameMatch = text.match(/天津市[^\n，,。]{0,40}(?:完全中学|中学)[^\n，,。]{0,20}/);
+    if (nameMatch) {
+        info.name = nameMatch[0].replace(/\s+/g, '').substring(0, 50);
     }
 
-    // 智能化系统
-    const intelMatch = text.match(/(?:视频监控|门禁|停车场|能耗监测|LED显示|校园网络|综合布线|公共广播|火灾自动报警)[系统]?/g);
-    if (intelMatch) {
-        info.intelligent = [...new Set(intelMatch.map(i => i.trim().replace('系统', '')))].slice(0, 5);
+    // ====== E. 教学班数 ======
+    const classMatch = text.match(/初中部[^\d]{0,20}(\d{2})[^\d]{0,5}班|共(\d{2})[^\d]{0,5}班(?:教学班)?/);
+    if (classMatch) {
+        info.classes = parseInt(classMatch[1] || classMatch[2]);
     }
+
+    // ====== F. 机电专业提取（从全文找，分专业只取关键词）======
+    
+    // 给排水 - 消防系统（核心3个）
+    const firePat = /消火栓(?:系统)?|自动喷淋(?:系统)?|气体灭火(?:系统)?|水喷雾灭火/g;
+    const fireFinds = text.match(firePat);
+    if (fireFinds) info.mep.给排水.消防 = [...new Set(fireFinds)].slice(0, 3);
+
+    // 热水
+    const hotPat = /太阳能(?:热水|系统)?|空气源热泵(?:热水|系统)?|集中热水|热水锅炉/g;
+    const hotFinds = text.match(hotPat);
+    if (hotFinds) info.mep.给排水.热水 = [...new Set(hotFinds)].slice(0, 2).join('、').substring(0, 25);
+
+    // 暖通 - 冷热源
+    const coolPat = /地源热泵|空气源热泵|冷水机组|VRV|多联机|分体空调/g;
+    const coolFinds = text.match(coolPat);
+    if (coolFinds) info.mep.暖通.冷热源 = [...new Set(coolFinds)].slice(0, 2).join('、').substring(0, 25);
+
+    // 供暖
+    const heatPat = /散热器|地采暖|地热采暖|暖气片|辐射供暖|供暖系统/g;
+    const heatFinds = text.match(heatPat);
+    if (heatFinds) info.mep.暖通.供暖 = [...new Set(heatFinds)].slice(0, 2).join('、').substring(0, 20);
 
     // 防排烟
-    const smokeMatch = text.match(/(?:正压送风|机械排烟|防排烟|排烟风机)[^\n，,。]{0,20}/);
-    if (smokeMatch) {
-        info.smokeControl = [smokeMatch[0].substring(0, 30).trim()];
+    const smokePat = /正压送风|机械排烟|防排烟|排烟风机|加压送风/g;
+    const smokeFinds = text.match(smokePat);
+    if (smokeFinds) info.mep.暖通.防排烟 = [...new Set(smokeFinds)].slice(0, 2).join('、').substring(0, 25);
+
+    // 电气 - 变压器
+    const transPat = /SCB\d+[^0-9]*(\d+)kVA|(\d+)kVA[^变压器]*变压器/;
+    const transMatch = text.match(transPat);
+    if (transMatch) info.mep.电气.变压器 = (transMatch[1] || transMatch[2]) + 'kVA';
+
+    // 供电
+    if (text.match(/双路电源|10kV|柴油发电机|自备发电机/)) {
+        const pwr = text.match(/10kV|双路\S*电源/g);
+        info.mep.电气.供电 = pwr ? pwr[0].substring(0, 20) : '双路电源';
     }
 
-    // ====== J. 特殊设施 ======
-    const poolMatch = text.match(/游泳池|泳池|游泳馆/);
-    if (poolMatch) info.hasPool = true;
+    // 消防电气
+    const fireElecPat = /火灾自动报警|应急照明|疏散指示|消防广播/g;
+    const fireElecFinds = text.match(fireElecPat);
+    if (fireElecFinds) info.mep.电气.消防电 = [...new Set(fireElecFinds)].slice(0, 3);
 
-    const civilMatch = text.match(/人防工程|人防设施|防空地下室|人防地下室/);
-    if (civilMatch) info.hasCivilDefense = true;
+    // 智能化
+    const intelPat = /视频监控|门禁|停车场|能耗监测|LED显示|校园网络|综合布线|公共广播/g;
+    const intelFinds = text.match(intelPat);
+    if (intelFinds) info.mep.电气.智能化 = [...new Set(intelFinds)].slice(0, 4);
 
-    // ====== K. 业态判断（强制学校类）======
-    // 初中部说明书关键字
-    if (text.match(/学校|中学|初中|高中|教学楼|教学班|完中|宿舍楼|食堂/)) {
-        info.bizType = '学校类';
-    }
-    // 其他业态覆盖
-    if (text.match(/医院|卫生院|门诊|病房/)) info.bizType = '医院类';
-    else if (text.match(/厂房|工业|车间|仓库/)) info.bizType = '厂房类';
-    else if (text.match(/办公楼|写字楼|商务/)) info.bizType = '办公类';
-    else if (text.match(/商场|商业|购物中心/)) info.bizType = '商业类';
-    else if (text.match(/酒店|宾馆|民宿/)) info.bizType = '酒店类';
-    else if (text.match(/住宅|小区|公寓/)) info.bizType = '住宅类';
+    // 业态（固定学校类）
+    info.bizType = '学校类';
 
     return info;
 }
+
 
 // ========== 自动填表功能（增强版）==========
 function autoFillForm(info) {
