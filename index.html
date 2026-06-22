@@ -128,6 +128,17 @@
                             <div class="step-text">正在计算指标...</div>
                         </div>
                     </div>
+                    
+                    <!-- 示例项目按钮 -->
+                    <div class="example-section">
+                        <div class="example-divider">
+                            <span>或</span>
+                        </div>
+                        <button class="btn-example" onclick="loadHuayuanExample()">
+                            <i class="fas fa-school"></i> 加载示例项目（华苑完全中学）
+                        </button>
+                        <p class="example-hint">点击加载真实项目数据，快速体验系统功能</p>
+                    </div>
                 </div>
             </section>
 
@@ -607,6 +618,8 @@
         </div>
     </div>
 
+    <!-- 引入 mammoth.js 用于解析 Word 文档 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
     <script src="app.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </body>

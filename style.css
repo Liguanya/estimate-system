@@ -1051,3 +1051,128 @@ body {
         flex-direction: column;
     }
 }
+
+/* 示例项目区域 */
+.example-section {
+    margin-top: 24px;
+    text-align: center;
+}
+
+.example-divider {
+    display: flex;
+    align-items: center;
+    margin-bottom: 16px;
+}
+
+.example-divider::before,
+.example-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: #ddd;
+}
+
+.example-divider span {
+    padding: 0 16px;
+    color: var(--text-light);
+    font-size: 13px;
+}
+
+.btn-example {
+    padding: 14px 28px;
+    background: linear-gradient(135deg, #667eea, #764ba2);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-example:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+}
+
+.btn-example i {
+    margin-right: 8px;
+}
+
+.example-hint {
+    margin-top: 10px;
+    font-size: 12px;
+    color: var(--text-light);
+}
+
+/* 提取结果样式 */
+.extraction-results {
+    margin-top: 15px;
+}
+
+.extraction-success,
+.extraction-fail {
+    margin-bottom: 12px;
+}
+
+.extraction-success h4,
+.extraction-fail h4 {
+    font-size: 14px;
+    margin-bottom: 8px;
+}
+
+.extraction-success h4 {
+    color: #27ae60;
+}
+
+.extraction-fail h4 {
+    color: #e67e22;
+}
+
+.extraction-success h4 i,
+.extraction-fail h4 i {
+    margin-right: 6px;
+}
+
+.extraction-results ul {
+    list-style: none;
+    padding-left: 20px;
+}
+
+.extraction-results li {
+    font-size: 13px;
+    color: var(--text-color);
+    margin-bottom: 4px;
+}
+
+.extraction-results li::before {
+    content: '✓ ';
+    color: #27ae60;
+}
+
+.extraction-fail li::before {
+    content: '○ ';
+    color: #e67e22;
+}
+
+@media (max-width: 768px) {
+    .main-nav ul {
+        overflow-x: auto;
+    }
+    .main-nav li {
+        padding: 8px 10px;
+        font-size: 12px;
+    }
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+    .summary-grid {
+        grid-template-columns: 1fr;
+    }
+    .specs-grid {
+        grid-template-columns: 1fr;
+    }
+    .cost-summary {
+        flex-direction: column;
+    }
+}

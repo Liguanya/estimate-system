@@ -1,0 +1,120 @@
+{
+  "projectName": "天津市滨海高新区华苑完全中学项目（高中部）",
+  "projectAddress": "天津市滨海高新区华苑科技园",
+  "designUnit": "天津市建筑设计研究院有限公司",
+  "totalArea": 60000,
+  "aboveArea": 55000,
+  "belowArea": 5000,
+  "teachingClasses": 60,
+  "bizType": "学校类-完全中学",
+  "buildings": [
+    {
+      "name": "综合教学楼",
+      "code": "A",
+      "area": 34850,
+      "floorsAbove": "地上5层局部3层",
+      "floorsBelow": 0,
+      "height": "首层5.4m，二至五层4.5m",
+      "structure": "框架结构",
+      "function": "教学、实验、行政、报告厅、图书馆"
+    },
+    {
+      "name": "学生宿舍楼",
+      "code": "B",
+      "area": 15140,
+      "floorsAbove": 6,
+      "floorsBelow": 0,
+      "height": "首层3.9m，二至六层3.6m",
+      "structure": "框架结构",
+      "function": "宿舍（4人间，约1800床）"
+    },
+    {
+      "name": "食堂及风雨操场",
+      "code": "C",
+      "area": 4990,
+      "floorsAbove": 2,
+      "floorsBelow": 0,
+      "height": "首层5.4m，二层12m",
+      "structure": "框架结构",
+      "function": "食堂（1800座）、风雨操场、游泳池"
+    },
+    {
+      "name": "地下配套用房",
+      "code": "D",
+      "area": 5000,
+      "floorsAbove": 0,
+      "floorsBelow": 1,
+      "height": "首层3.9m",
+      "structure": "框架结构",
+      "function": "设备用房、汽车库、人防设施"
+    },
+    {
+      "name": "门卫室",
+      "code": "E",
+      "area": 20,
+      "floorsAbove": 1,
+      "floorsBelow": 0,
+      "height": "单层",
+      "structure": "砖混结构",
+      "function": "门卫值班"
+    }
+  ],
+  "water": {
+    "supplySource": "市政给水管网，两路引入",
+    "hotWaterSystem": "太阳能+空气源热泵热水系统",
+    "hotWaterNote": "宿舍楼，1800床",
+    "drainageSystem": "污废合流+雨污分流",
+    "fireProtection": ["自动喷淋灭火系统", "室内消火栓系统", "室外消火栓系统"],
+    "waterReuse": "雨水收集回用（绿化灌溉）",
+    "specialFeatures": ["中水处理设备", "雨水调蓄"]
+  },
+  "hvac": {
+    "coolHeatSource": "地源热泵系统",
+    "coolHeatNote": "综合教学楼冷热源，含地埋管换热系统",
+    "acSystem": ["风机盘管+新风系统（四管制）", "VRV中央空调系统"],
+    "acNote": "图书馆/报告厅/风雨操场采用VRV",
+    "heatingSystem": "散热器供暖",
+    "heatingNote": "宿舍楼，含管道及控制系统",
+    "ventilationSystem": ["厨房油烟净化系统", "机械排风（卫生间/设备用房）"],
+    "smokeControl": ["楼梯间正压送风", "机械排烟（报告厅/食堂）"],
+    "poolSystem": "泳池恒温恒湿系统（风雨操场，含除湿热泵）",
+    "specialFeatures": ["全热交换新风系统（宿舍楼）", "独立通风系统（游泳池）"]
+  },
+  "electric": {
+    "powerSupply": "双路10kV电源",
+    "generator": "自备发电机200kVA",
+    "transformer": "SCB13-1600kVA×2",
+    "lighting": "LED光源，智能照明控制",
+    "lightningProtection": "二类防雷，SPD保护",
+    "fireAlarm": "火灾自动报警系统",
+    "fireAlarmDevices": ["感烟探测器", "感温探测器", "手动报警按钮", "声光报警器", "消防广播/电话"],
+    "intelligentSystem": ["视频监控(CCTV)", "门禁管理系统", "停车场管理", "能耗监测系统", "LED信息发布", "校园综合布线(网络/电话)", "公共广播系统(背景音乐)"],
+    "emergency": ["应急照明", "疏散指示系统"],
+    "specialFeatures": ["EPS应急电源", "UPS不间断电源", "分项计量"]
+  },
+  "indicators": {
+    "综合教学楼": {
+      "water": 90,
+      "hvac": 150,
+      "electric": 170
+    },
+    "学生宿舍楼": {
+      "water": 85,
+      "hvac": 130,
+      "electric": 160
+    },
+    "食堂及风雨操场": {
+      "water": 100,
+      "hvac": 180,
+      "electric": 175
+    },
+    "地下配套用房": {
+      "water": 80,
+      "hvac": 120,
+      "electric": 150
+    }
+  },
+  "regionFactor": 1.0,
+  "importDate": "2026-03-09",
+  "designDate": "2026年03月09日"
+}

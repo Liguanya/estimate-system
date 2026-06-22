@@ -1,3 +1,8 @@
+// ========== 全局变量 ==========
+let extractedProjectInfo = null;
+let huayuanProjectData = null;
+let huayuanBudgetData = null;
+
 // ========== 登录相关 ==========
 const users = [
     { username: 'admin', password: '123456', displayName: '管理员' },
@@ -18,6 +23,7 @@ document.addEventListener('DOMContentLoaded', function() {
     checkLoginStatus();
     initNavigation();
     initDragDrop();
+    loadHuayuanProjectData();
 });
 
 function checkLoginStatus() {
@@ -87,6 +93,353 @@ function switchSection(sectionId) {
     if (target) target.classList.add('active');
 }
 
+// ========== 加载华苑项目示例数据 ==========
+async function loadHuayuanProjectData() {
+    try {
+        // 尝试加载本地JSON文件
+        const response = await fetch('huayuan_project_data.json');
+        if (response.ok) {
+            huayuanProjectData = await response.json();
+        }
+    } catch (e) {
+        console.log('本地加载失败，将使用内置数据');
+    }
+}
+
+// ========== Word文档解析功能（mammoth.js）==========
+async function parseWordDocument(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async function(event) {
+            try {
+                const arrayBuffer = reader.result;
+                const result = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+                resolve(result.value);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        reader.onerror = reject;
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+// ========== 关键词提取函数 ==========
+function extractProjectInfo(text) {
+    const info = {
+        name: '',
+        totalArea: 0,
+        aboveArea: 0,
+        belowArea: 0,
+        classes: 0,
+        buildings: [],
+        heating: '',
+        coolHeatSource: '',
+        hotWater: '',
+        fireProtection: [],
+        smokeControl: [],
+        power: '',
+        transformer: '',
+        intelligent: [],
+        hasPool: false,
+        hasCivilDefense: false,
+        bizType: '学校类',
+        waterSupply: '',
+        acSystem: '',
+        warnings: []
+    };
+
+    // 项目名称
+    const nameMatch = text.match(/天津市[^\n]{0,30}(?:完全中学|中学|学校)[^\n]{0,20}/);
+    if (nameMatch) {
+        info.name = nameMatch[0].replace(/\s+/g, '').substring(0, 50);
+    } else {
+        info.warnings.push('项目名称未能识别');
+    }
+
+    // 总建筑面积
+    const areaMatch = text.match(/高中部[^\d]*(\d+)㎡|总建筑面积[^\d]*(\d+)㎡/);
+    if (areaMatch) {
+        info.totalArea = parseInt(areaMatch[1] || areaMatch[2]) || 0;
+    }
+
+    // 地上面积
+    const aboveMatch = text.match(/地上建筑面积[^\d]*(\d+)㎡/);
+    if (aboveMatch) {
+        info.aboveArea = parseInt(aboveMatch[1]);
+    }
+
+    // 地下面积
+    const belowMatch = text.match(/地下建筑面积[^\d]*(\d+)㎡/);
+    if (belowMatch) {
+        info.belowArea = parseInt(belowMatch[1]);
+    }
+
+    // 教学班数
+    const classMatch = text.match(/高中部[^\d]*(\d+)[^\d]*教学班|(\d+)个教学班/);
+    if (classMatch) {
+        info.classes = parseInt(classMatch[1] || classMatch[2]) || 0;
+    }
+
+    // 综合教学楼面积
+    const teachingMatch = text.match(/综合教学楼[^\d]*(\d+)㎡/);
+    if (teachingMatch) {
+        info.buildings.push({
+            name: '综合教学楼',
+            area: parseInt(teachingMatch[1]),
+            floors: '地上5层局部3层'
+        });
+    }
+
+    // 宿舍楼面积
+    const dormMatch = text.match(/学生宿舍楼[^\d]*(\d+)㎡/);
+    if (dormMatch) {
+        info.buildings.push({
+            name: '学生宿舍楼',
+            area: parseInt(dormMatch[1]),
+            floors: '地上6层'
+        });
+    }
+
+    // 食堂面积
+    const canteenMatch = text.match(/食堂(?:及风雨操场)?[^\d]*(\d+)㎡/);
+    if (canteenMatch) {
+        info.buildings.push({
+            name: '食堂及风雨操场',
+            area: parseInt(canteenMatch[1]),
+            floors: '地上2层'
+        });
+    }
+
+    // 地下配套用房
+    const ugMatch = text.match(/地下配套用房[^\d]*(\d+)㎡/);
+    if (ugMatch) {
+        info.buildings.push({
+            name: '地下配套用房',
+            area: parseInt(ugMatch[1]),
+            floors: '地下1层'
+        });
+    }
+
+    // 供暖形式
+    const heatingMatch = text.match(/(散热器|地采暖|风机盘管|地源热泵|冷热源)[^\n]{0,30}/);
+    if (heatingMatch) {
+        info.heating = heatingMatch[0].replace(/\s+/g, ' ').trim();
+    }
+
+    // 冷热源形式
+    const coolHeatMatch = text.match(/(地源热泵|空气源热泵|VRV|冷水机组)[^\n]{0,30}/);
+    if (coolHeatMatch) {
+        info.coolHeatSource = coolHeatMatch[0].replace(/\s+/g, ' ').trim();
+    }
+
+    // 热水系统
+    const hotWaterMatch = text.match(/(太阳能|空气源热泵|热水系统)[^\n]{0,30}/);
+    if (hotWaterMatch) {
+        info.hotWater = hotWaterMatch[0].replace(/\s+/g, ' ').trim();
+    }
+
+    // 消防系统
+    const fireMatch = text.match(/(自动喷淋|消火栓|喷淋灭火|火灾自动报警)[^\n]{0,50}/g);
+    if (fireMatch) {
+        info.fireProtection = [...new Set(fireMatch.map(f => f.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').substring(0, 20)))];
+    }
+
+    // 防排烟
+    const smokeMatch = text.match(/(正压送风|机械排烟|防排烟|排烟风机)[^\n]{0,50}/g);
+    if (smokeMatch) {
+        info.smokeControl = [...new Set(smokeMatch.map(s => s.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').substring(0, 15)))];
+    }
+
+    // 供电形式
+    const powerMatch = text.match(/(\d+)kVA.*发电机|双路.*电源|自备发电机/);
+    if (powerMatch) {
+        info.power = powerMatch[0].replace(/\s+/g, ' ').trim();
+    }
+
+    // 变压器容量
+    const transformerMatch = text.match(/(\d+)kVA.*变压器|SCB\d+[^\d]*(\d+)kVA/);
+    if (transformerMatch) {
+        info.transformer = (transformerMatch[1] || transformerMatch[2]) + 'kVA';
+    }
+
+    // 智能化系统
+    const intelMatch = text.match(/(视频监控|门禁|停车场|能耗监测|LED|校园网络|综合布线|公共广播|信息发布)[^\n]{0,80}/g);
+    if (intelMatch) {
+        info.intelligent = [...new Set(intelMatch.map(i => i.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').substring(0, 15)))];
+    }
+
+    // 游泳池
+    info.hasPool = /游泳池|泳池|游泳馆/.test(text);
+
+    // 人防
+    info.hasCivilDefense = /人防工程|人防设施|防空地下室/.test(text);
+
+    // 供水来源
+    const waterSupplyMatch = text.match(/市政.*给水|两路引入|供水来源[^\n]{0,20}/);
+    if (waterSupplyMatch) {
+        info.waterSupply = waterSupplyMatch[0].replace(/\s+/g, ' ').trim();
+    }
+
+    // 空调系统
+    const acMatch = text.match(/(风机盘管|VRV|多联机|新风系统|四管制)[^\n]{0,30}/g);
+    if (acMatch) {
+        info.acSystem = [...new Set(acMatch.map(a => a.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '').substring(0, 15)))].join('、');
+    }
+
+    return info;
+}
+
+// ========== 自动填表功能 ==========
+function autoFillForm(info) {
+    // 项目名称
+    if (info.name) {
+        document.getElementById('projectName').value = info.name;
+    }
+
+    // 栋号信息
+    if (info.buildings && info.buildings.length > 0) {
+        const buildingList = document.getElementById('buildingList');
+        buildingList.innerHTML = '';
+
+        info.buildings.forEach((building, index) => {
+            const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const letter = letters[index] || (index + 1);
+            const newBuilding = document.createElement('div');
+            newBuilding.className = 'building-item';
+            newBuilding.dataset.index = index;
+            newBuilding.innerHTML = `
+                <div class="building-header">
+                    <span class="building-name">栋号 ${letter}</span>
+                    <button class="btn-danger btn-sm" onclick="removeBuilding(this)"><i class="fas fa-trash"></i></button>
+                </div>
+                <div class="info-item">
+                    <label>栋号名称</label>
+                    <input type="text" class="building-name-input" value="${building.name}" placeholder="栋号名称">
+                </div>
+                <div class="info-item">
+                    <label>建筑面积（㎡）</label>
+                    <input type="number" class="building-area-input" value="${building.area}" placeholder="建筑面积">
+                </div>
+                <div class="info-item">
+                    <label>建筑高度（m）</label>
+                    <input type="number" class="building-height-input" placeholder="建筑高度">
+                </div>
+            `;
+            buildingList.appendChild(newBuilding);
+        });
+
+        updateBuildingButtons();
+    }
+
+    // 业态类型 - 自动识别学校类
+    const bizSelect = document.getElementById('businessType');
+    if (info.bizType === '学校类') {
+        bizSelect.value = '中小学';
+    }
+
+    // 触发业态变化
+    onBusinessTypeChange();
+
+    // 给排水专业
+    if (info.hotWater) {
+        const hotWaterSelect = document.getElementById('hotWater');
+        if (/太阳能/.test(info.hotWater)) hotWaterSelect.value = '太阳能';
+        else if (/空气源/.test(info.hotWater)) hotWaterSelect.value = '空气源热泵';
+    }
+
+    if (info.fireProtection && info.fireProtection.length > 0) {
+        const fireCheckboxes = document.querySelectorAll('#section-info input[value="室内消火栓"], #section-info input[value="自动喷淋"]');
+        fireCheckboxes.forEach(cb => {
+            if (info.fireProtection.some(f => f.includes(cb.value))) {
+                cb.checked = true;
+            }
+        });
+    }
+
+    // 暖通专业
+    if (info.coolHeatSource) {
+        const heatingSelect = document.getElementById('heatingType');
+        if (/地源热泵/.test(info.coolHeatSource)) heatingSelect.value = '地源热泵';
+        else if (/空气源/.test(info.coolHeatSource)) heatingSelect.value = '空气源热泵';
+    }
+
+    if (info.acSystem) {
+        const acSelect = document.getElementById('acType');
+        if (/风机盘管/.test(info.acSystem)) acSelect.value = '风机盘管+新风';
+        else if (/VRV|多联机/.test(info.acSystem)) acSelect.value = '多联机';
+    }
+
+    if (info.smokeControl && info.smokeControl.length > 0) {
+        const smokeCheckboxes = document.querySelectorAll('#section-info input[value="正压送风"], #section-info input[value="机械排烟"]');
+        smokeCheckboxes.forEach(cb => {
+            if (info.smokeControl.some(s => s.includes(cb.value))) {
+                cb.checked = true;
+            }
+        });
+    }
+
+    // 电气专业
+    if (info.transformer) {
+        document.getElementById('transformerCapacity').value = info.transformer;
+    }
+
+    if (info.power) {
+        const powerCheckboxes = document.querySelectorAll('#section-info input[value="柴发"], #section-info input[value="双电源切换"]');
+        powerCheckboxes.forEach(cb => {
+            if (info.power.includes('发电机') || info.power.includes('双路')) {
+                cb.checked = true;
+            }
+        });
+    }
+
+    return info;
+}
+
+// ========== 显示提取结果提示 ==========
+function showExtractionResults(info) {
+    let successList = [];
+    let failList = [];
+
+    if (info.name) successList.push('项目名称');
+    else failList.push('项目名称');
+
+    if (info.totalArea > 0) successList.push('总建筑面积');
+    else failList.push('总建筑面积');
+
+    if (info.buildings.length > 0) successList.push(`栋号信息(${info.buildings.length}栋)`);
+    else failList.push('栋号信息');
+
+    if (info.coolHeatSource) successList.push('冷热源形式');
+    else failList.push('冷热源形式');
+
+    if (info.fireProtection.length > 0) successList.push('消防系统');
+    else failList.push('消防系统');
+
+    if (info.intelligent.length > 0) successList.push('智能化系统');
+    else failList.push('智能化系统');
+
+    if (info.hasPool) successList.push('游泳池');
+    if (info.hasCivilDefense) successList.push('人防设施');
+
+    const resultHtml = `
+        <div class="extraction-results">
+            <div class="extraction-success">
+                <h4><i class="fas fa-check-circle"></i> 成功提取</h4>
+                <ul>${successList.map(s => `<li>${s}</li>`).join('')}</ul>
+            </div>
+            ${failList.length > 0 ? `
+            <div class="extraction-fail">
+                <h4><i class="fas fa-exclamation-circle"></i> 未识别（请手动填写）</h4>
+                <ul>${failList.map(f => `<li>${f}</li>`).join('')}</ul>
+            </div>
+            ` : ''}
+        </div>
+    `;
+
+    return resultHtml;
+}
+
 // ========== 文件上传相关 ==========
 function initDragDrop() {
     const uploadArea = document.getElementById('uploadArea');
@@ -114,14 +467,17 @@ function handleFileSelect(event) {
     if (file) handleFileUpload(file);
 }
 
-function handleFileUpload(file) {
+async function handleFileUpload(file) {
     const allowedTypes = [
         'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'application/msword',
         'application/pdf'
     ];
     
-    if (!allowedTypes.includes(file.type) && !file.name.match(/\.(docx?|pdf)$/i)) {
+    // 允许.docx格式
+    const isDocx = file.name.match(/\.docx$/i);
+    
+    if (!allowedTypes.includes(file.type) && !isDocx && !file.name.match(/\.(docx?|pdf)$/i)) {
         showModal('格式错误', '仅支持 .docx .doc .pdf 格式文件', [
             { text: '确定', class: 'btn-primary', onClick: closeModal }
         ]);
@@ -148,6 +504,7 @@ function handleFileUpload(file) {
     fileName.textContent = file.name;
     fileSize.textContent = (file.size / 1024 / 1024).toFixed(2) + ' MB';
     statusMessage.textContent = '正在上传...';
+    statusMessage.style.color = 'var(--text-light)';
 
     // 模拟上传进度
     let progress = 0;
@@ -169,40 +526,66 @@ function handleFileUpload(file) {
     }, 200);
 }
 
-function simulateFileProcessing(file) {
+async function simulateFileProcessing(file) {
     document.getElementById('step2').classList.add('active');
-    document.getElementById('statusMessage').textContent = '正在解析项目说明书...';
+    document.getElementById('statusMessage').textContent = '正在解析Word文档...';
 
-    setTimeout(() => {
+    try {
+        // 使用mammoth.js解析Word文档
+        const text = await parseWordDocument(file);
+        
+        setTimeout(() => {
+            document.getElementById('step2').classList.remove('active');
+            document.getElementById('step2').classList.add('completed');
+            document.getElementById('step3').classList.add('active');
+            document.getElementById('statusMessage').textContent = '正在提取关键信息并生成模拟清单...';
+            
+            // 提取项目信息
+            extractedProjectInfo = extractProjectInfo(text);
+            
+            // 自动填表
+            autoFillForm(extractedProjectInfo);
+            
+            setTimeout(() => {
+                document.getElementById('step3').classList.remove('active');
+                document.getElementById('step3').classList.add('completed');
+                document.getElementById('step4').classList.add('active');
+                document.getElementById('statusMessage').textContent = '正在计算各项指标...';
+                
+                setTimeout(() => {
+                    document.getElementById('step4').classList.remove('active');
+                    document.getElementById('step4').classList.add('completed');
+                    document.getElementById('statusMessage').textContent = '处理完成！';
+                    document.getElementById('statusMessage').style.color = 'var(--primary-color)';
+                    
+                    // 显示提取结果
+                    const resultsHtml = showExtractionResults(extractedProjectInfo);
+                    showModal('文件解析完成', `
+                        <p>成功从文档中提取项目信息！</p>
+                        ${resultsHtml}
+                        <p style="margin-top:15px;">请前往「项目信息」查看提取结果，或直接点击「生成估算概算」</p>
+                    `, [
+                        { text: '查看项目信息', class: 'btn-primary', onClick: () => { closeModal(); switchSection('info'); } }
+                    ]);
+                }, 800);
+            }, 1000);
+        }, 1500);
+    } catch (error) {
+        console.error('Word解析失败:', error);
+        // 降级处理：使用文件名推测
         document.getElementById('step2').classList.remove('active');
         document.getElementById('step2').classList.add('completed');
         document.getElementById('step3').classList.add('active');
-        document.getElementById('statusMessage').textContent = '正在提取关键信息并生成模拟清单...';
+        document.getElementById('statusMessage').textContent = '解析遇到问题，使用默认处理...';
         
-        // 模拟提取项目信息
-        extractProjectInfo(file);
-        
-        setTimeout(() => {
-            document.getElementById('step3').classList.remove('active');
-            document.getElementById('step3').classList.add('completed');
-            document.getElementById('step4').classList.add('active');
-            document.getElementById('statusMessage').textContent = '正在计算各项指标...';
-            
-            setTimeout(() => {
-                document.getElementById('step4').classList.remove('active');
-                document.getElementById('step4').classList.add('completed');
-                document.getElementById('statusMessage').textContent = '处理完成！请前往「项目信息」查看提取结果，或直接点击「生成估算概算」';
-                document.getElementById('statusMessage').style.color = 'var(--primary-color)';
-            }, 800);
-        }, 1000);
-    }, 1500);
+        extractProjectInfoFallback(file);
+    }
 }
 
-function extractProjectInfo(file) {
-    // 从文件名推测项目信息（实际场景中会解析文件内容）
+function extractProjectInfoFallback(file) {
+    // 从文件名推测项目信息
     const fileName = file.name.replace(/\.(docx?|pdf)$/i, '');
     
-    // 智能提取项目名称
     let projectName = fileName
         .replace(/估算|概算|说明书|项目/g, '')
         .replace(/[_-]+/g, '')
@@ -217,7 +600,7 @@ function extractProjectInfo(file) {
         '办公': ['办公楼', '写字楼', '商务'],
         '商业': ['商业', '商场', '综合体', '购物中心'],
         '酒店': ['酒店', '宾馆', '公寓'],
-        '学校': ['学校', '学院', '幼儿园', '中小学', '教学楼'],
+        '学校': ['学校', '学院', '幼儿园', '中小学', '教学楼', '完全中学'],
         '医院': ['医院', '医疗', '卫生'],
         '厂房': ['厂房', '车间', '工业'],
         '体育': ['体育馆', '游泳馆', '体育场'],
@@ -232,16 +615,125 @@ function extractProjectInfo(file) {
         }
     }
     
-    // 自动填充栋号面积（默认示例数据）
-    const buildingInputs = document.querySelectorAll('.building-item');
-    if (buildingInputs.length > 0) {
-        const firstItem = buildingInputs[0];
-        firstItem.querySelector('.building-name-input').value = 'A座';
-        firstItem.querySelector('.building-area-input').value = '15000';
-        firstItem.querySelector('.building-height-input').value = '54';
-    }
-    
     onBusinessTypeChange();
+    
+    setTimeout(() => {
+        document.getElementById('step3').classList.remove('active');
+        document.getElementById('step3').classList.add('completed');
+        document.getElementById('step4').classList.add('active');
+        document.getElementById('statusMessage').textContent = '处理完成！';
+        document.getElementById('statusMessage').style.color = 'var(--primary-color)';
+        document.getElementById('step4').classList.remove('active');
+        document.getElementById('step4').classList.add('completed');
+        
+        showModal('处理完成', `
+            <p>文件已处理完成！</p>
+            <p style="margin-top:10px;">未能完整解析文档内容，部分信息需要手动填写。</p>
+            <p style="margin-top:10px;">请前往「项目信息」完善项目信息，然后生成估算概算。</p>
+        `, [
+            { text: '查看项目信息', class: 'btn-primary', onClick: () => { closeModal(); switchSection('info'); } }
+        ]);
+    }, 1000);
+}
+
+// ========== 加载示例项目（华苑完中） ==========
+function loadHuayuanExample() {
+    // 华苑完中项目示例数据
+    const huayuanData = {
+        name: '天津市滨海高新区华苑完全中学项目（高中部）',
+        buildings: [
+            { name: '综合教学楼', area: 34850, height: 24 },
+            { name: '学生宿舍楼', area: 15140, height: 22 },
+            { name: '食堂及风雨操场', area: 4990, height: 12 },
+            { name: '地下配套用房', area: 5000, height: 4 }
+        ],
+        bizType: '中小学',
+        regionFactor: 1.0,
+        waterSupply: '市政直供',
+        hotWater: '太阳能+空气源热泵',
+        fireProtection: ['室内消火栓', '自动喷淋'],
+        acType: '风机盘管+新风',
+        heatingType: '地源热泵',
+        smokeControl: ['正压送风', '机械排烟'],
+        transformer: '2×1600kVA',
+        powerBackup: ['柴发', '双电源切换']
+    };
+
+    // 填充表单
+    document.getElementById('projectName').value = huayuanData.name;
+    document.getElementById('businessType').value = huayuanData.bizType;
+    document.getElementById('regionFactor').value = huayuanData.regionFactor;
+
+    // 栋号信息
+    const buildingList = document.getElementById('buildingList');
+    buildingList.innerHTML = '';
+
+    huayuanData.buildings.forEach((building, index) => {
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const letter = letters[index] || (index + 1);
+        const newBuilding = document.createElement('div');
+        newBuilding.className = 'building-item';
+        newBuilding.dataset.index = index;
+        newBuilding.innerHTML = `
+            <div class="building-header">
+                <span class="building-name">栋号 ${letter}</span>
+                <button class="btn-danger btn-sm" onclick="removeBuilding(this)"><i class="fas fa-trash"></i></button>
+            </div>
+            <div class="info-item">
+                <label>栋号名称</label>
+                <input type="text" class="building-name-input" value="${building.name}" placeholder="栋号名称">
+            </div>
+            <div class="info-item">
+                <label>建筑面积（㎡）</label>
+                <input type="number" class="building-area-input" value="${building.area}" placeholder="建筑面积">
+            </div>
+            <div class="info-item">
+                <label>建筑高度（m）</label>
+                <input type="number" class="building-height-input" value="${building.height}" placeholder="建筑高度">
+            </div>
+        `;
+        buildingList.appendChild(newBuilding);
+    });
+
+    updateBuildingButtons();
+
+    // 机电专业信息
+    document.getElementById('hotWater').value = huayuanData.hotWater;
+    document.getElementById('acType').value = huayuanData.acType;
+    document.getElementById('heatingType').value = huayuanData.heatingType;
+    document.getElementById('transformerCapacity').value = huayuanData.transformer;
+
+    // 勾选复选框
+    huayuanData.fireProtection.forEach(item => {
+        const checkbox = document.querySelector(`#section-info input[value="${item}"]`);
+        if (checkbox) checkbox.checked = true;
+    });
+
+    huayuanData.smokeControl.forEach(item => {
+        const checkbox = document.querySelector(`#section-info input[value="${item}"]`);
+        if (checkbox) checkbox.checked = true;
+    });
+
+    huayuanData.powerBackup.forEach(item => {
+        const checkbox = document.querySelector(`#section-info input[value="${item}"]`);
+        if (checkbox) checkbox.checked = true;
+    });
+
+    onBusinessTypeChange();
+
+    showModal('示例项目已加载', `
+        <p>已加载「华苑完全中学（高中部）」示例项目数据：</p>
+        <ul style="margin-top:10px;line-height:1.8;">
+            <li>总建筑面积：60,000㎡</li>
+            <li>综合教学楼：34,850㎡</li>
+            <li>学生宿舍楼：15,140㎡</li>
+            <li>食堂及风雨操场：4,990㎡</li>
+            <li>地下配套用房：5,000㎡</li>
+        </ul>
+        <p style="margin-top:15px;">可直接点击「生成估算概算」查看效果！</p>
+    `, [
+        { text: '生成估算概算', class: 'btn-primary', onClick: () => { closeModal(); generateEstimate(); } }
+    ]);
 }
 
 // ========== 栋号管理 ==========
@@ -612,7 +1104,7 @@ function generateEstimate() {
 }
 
 // ========== 清单生成函数 ==========
-const WATER_CODES = ['安装-给排水-管道-01', '安表-给排水-管道-02', '安装-给排水-阀门-03', '安表-给排水-附件-04', '安表-给排水-设备-05', '安装-给排水-卫生-06', '安表-给排水-保温-07', '安装-给排水-防腐-08'];
+const WATER_CODES = ['安装-给排水-管道-01', '安装-给排水-管道-02', '安装-给排水-阀门-03', '安装-给排水-附件-04', '安装-给排水-设备-05', '安装-给排水-卫生-06', '安装-给排水-保温-07', '安装-给排水-防腐-08'];
 const WATER_ITEMS = [
     { name: '室内生活给水管道（PP-R/PE）', unit: 'm', basePrice: 18, density: 0.8 },
     { name: '室内排水管道（UPVC/PVC）', unit: 'm', basePrice: 14, density: 0.7 },
@@ -639,7 +1131,7 @@ const WATER_ITEMS = [
     { name: '喷头安装（闭式）', unit: '个', basePrice: 28, density: 0.4 }
 ];
 
-const HVAC_CODES = ['安表-暖通-风管-01', '安装-暖通-风管-02', '安装-暖通-风口-03', '安装-暖通-设备-04', '安装-暖通-空调-05', '安表-暖通-采暖-06', '安装-暖通-保温-07', '安装-暖通-防腐-08'];
+const HVAC_CODES = ['安装-暖通-风管-01', '安装-暖通-风管-02', '安装-暖通-风口-03', '安装-暖通-设备-04', '安装-暖通-空调-05', '安装-暖通-采暖-06', '安装-暖通-保温-07', '安装-暖通-防腐-08'];
 const HVAC_ITEMS = [
     { name: '镀锌钢板风管（矩形）', unit: 'm²', basePrice: 65, density: 1.2 },
     { name: '镀锌钢板风管（圆形）', unit: 'm²', basePrice: 72, density: 0.8 },
@@ -675,7 +1167,7 @@ const HVAC_ITEMS = [
     { name: '地暖盘管', unit: 'm²', basePrice: 55, density: 0.5 }
 ];
 
-const ELECTRIC_CODES = ['安表-电气-配管-01', '安装-电气-配线-02', '安装-电气-电缆-03', '安装-电气-配电-04', '安装-电气-照明-05', '安装-电气-防雷-06', '安表-电气-应急-07', '安表-电气-弱电-08'];
+const ELECTRIC_CODES = ['安装-电气-配管-01', '安装-电气-配线-02', '安装-电气-电缆-03', '安装-电气-配电-04', '安装-电气-照明-05', '安装-电气-防雷-06', '安装-电气-应急-07', '安装-电气-弱电-08'];
 const ELECTRIC_ITEMS = [
     { name: '电气配管（PVC/KBG）', unit: 'm', basePrice: 8, density: 3.0 },
     { name: '电气配管（SC焊接钢管）', unit: 'm', basePrice: 18, density: 1.5 },
@@ -1085,6 +1577,7 @@ function resetProject() {
             document.getElementById('step2').className = 'step';
             document.getElementById('step3').className = 'step';
             document.getElementById('step4').className = 'step';
+            extractedProjectInfo = null;
             closeModal();
         }}
     ]);
