@@ -128,7 +128,7 @@ async function parseWordDocument(file) {
     });
 }
 
-// ========== 关键词提取函数（增强版 - 解决浏览器端mammoth解析差异）==========
+// ========== 关键词提取函数（5专业规范化版）==========
 function extractProjectInfo(text) {
     const info = {
         name: '',
@@ -139,19 +139,23 @@ function extractProjectInfo(text) {
         buildings: [],
         bizType: '学校类',
         mep: {
-            给排水: { 消防: [], 热水: '', 其他: [] },
-            暖通: { 冷热源: '', 供暖: '', 空调: '', 防排烟: '' },
-            电气: { 变压器: '', 供电: '', 照明: '', 消防电: [], 智能化: [] }
+            // 给排水专业
+            给排水: { 系统: [], 管材: [], 设备: [] },
+            // 暖通专业
+            暖通: { 系统: [], 管材: [], 设备: [] },
+            // 电气专业
+            电气: { 系统: [], 管材: [], 设备: [] },
+            // 弱电专业
+            弱电: { 系统: [], 管材: [], 设备: [] },
+            // 消防专业
+            消防: { 系统: [], 管材: [], 设备: [] }
         },
         warnings: []
     };
 
     text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-    
-    // ====== 统一表格格式：将各种分隔符转为统一格式 ======
-    // 处理 <br/> 标签后的残留问题
     text = text.replace(/<br\s*\/?>/gi, '\n');
-    
+
     // ====== A. 总建筑面积 - 多种正则尝试 ======
     const totalAreaPatterns = [
         /\|建筑面积\|建筑面积\|建筑面积\|m2\|(\d{5})\|/,
@@ -177,12 +181,12 @@ function extractProjectInfo(text) {
     const belowMatch = text.match(/\|地下建筑面积\|[^|]*\|[^|]*\|[^|]*m2[^|]*\|(\d{4,5})\|/);
     if (belowMatch) info.belowArea = parseInt(belowMatch[1]);
     
-    // ====== C. 栋号提取 - 教学楼 ======
+    // ====== C. 栋号提取 ======
+    // 综合教学楼
     const jzxPatterns = [
         /\|其中\|综合教学楼[^\|]*\|[^\|]*\|[^\|]*m2[^\|]*\|(\d{5})\|/,
         /综合教学楼[^\|]*\|[^\|]*\|[^\|]*m2[^\|]*\|(\d{5})\|/,
-        /教学楼[^\d]*?(\d{5})/,
-        /综合教学楼[^\d]*?(\d{5})/
+        /教学楼[^\d]*?(\d{5})/
     ];
     for (const pattern of jzxPatterns) {
         const match = text.match(pattern);
@@ -195,18 +199,16 @@ function extractProjectInfo(text) {
         }
     }
     
-    // ====== D. 栋号提取 - 地下车库/地下室 ======
+    // 地下车库
     const ugPatterns = [
         /\|地下建筑面积\|[^|]*\|[^|]*\|[^|]*m2[^|]*\|(\d{4,5})\|/,
-        /地下车库[^\|]*\|[^\|]*\|[^\|]*m2[^\|]*\|(\d{4,5})\|/,
-        /地下室[^\d]*?(\d{4,5})/
+        /地下车库[^\|]*\|[^\|]*\|[^\|]*m2[^\|]*\|(\d{4,5})\|/
     ];
     for (const pattern of ugPatterns) {
         const match = text.match(pattern);
         if (match) {
             const area = parseInt(match[1]);
             if (area >= 1000 && area <= 50000) {
-                // 检查是否已存在，避免重复添加
                 const exists = info.buildings.some(b => b.name.includes('地下'));
                 if (!exists) {
                     info.buildings.push({ name: '地下车库及设备用房', area, floors: '地下1层' });
@@ -216,86 +218,228 @@ function extractProjectInfo(text) {
         }
     }
     
-    // ====== E. 项目名称 ======
+    // ====== D. 项目名称 ======
     const nameMatch = text.match(/天津市[^\n，,。]{0,40}(?:完全中学|中学)[^\n，,。]{0,30}/);
     if (nameMatch) {
         info.name = nameMatch[0].replace(/\s+/g, '').substring(0, 50);
     }
     
-    // ====== F. 教学班数 ======
+    // ====== E. 教学班数 ======
     const classMatch = text.match(/初中部[^\d]{0,20}(\d{2})[^\d]{0,5}班|共(\d{2})[^\d]{0,5}班(?:教学班)?/);
     if (classMatch) {
         info.classes = parseInt(classMatch[1] || classMatch[2]);
     }
     
-    // ====== G. 机电专业提取 - 从文档各章节提取 ======
+    // ====== F. 机电5专业系统化提取 ======
     
-    // 给排水 - 消防系统
-    const firePat = /消火栓(?:系统)?|自动喷淋(?:系统)?|气体灭火(?:系统)?|水喷雾灭火|消防水池|消防水泵/g;
-    const fireFinds = text.match(firePat);
-    if (fireFinds) info.mep.给排水.消防 = [...new Set(fireFinds)].slice(0, 4);
+    // 【给排水专业】
+    const jpsSys = [], jpsMat = [], jpsEq = [];
     
-    // 给排水 - 热水系统
-    const hotPat = /太阳能(?:热水|系统)?|空气源热泵(?:热水|系统)?|集中热水|热水锅炉|电热水器/g;
-    const hotFinds = text.match(hotPat);
-    if (hotFinds) info.mep.给排水.热水 = [...new Set(hotFinds)].slice(0, 2).join('、').substring(0, 30);
+    // 给水系统
+    if (/市政供水|市政直供/.test(text)) jpsSys.push('市政直供');
+    if (/变频供水|变频调速泵/.test(text)) jpsSys.push('变频供水');
+    if (/无负压/.test(text)) jpsSys.push('无负压供水');
+    if (/太阳能热水|太阳能供水/.test(text)) jpsSys.push('太阳能热水系统');
+    if (/空气源热泵.*热水|热水.*空气源/.test(text)) jpsSys.push('空气源热泵热水');
+    if (/中水回用|中水系统/.test(text)) jpsSys.push('中水回用系统');
+    if (/雨水回收|雨水利用|海绵城市/.test(text)) jpsSys.push('雨水收集系统');
     
-    // 给排水 - 其他（雨水、给水等）
-    const waterPat = /市政供水|变频供水|无负压|中水回用|雨水回收|海绵城市/g;
-    const waterFinds = text.match(waterPat);
-    if (waterFinds) info.mep.给排水.其他 = [...new Set(waterFinds)].slice(0, 3);
+    // 消防系统
+    if (/室内消火栓|消火栓系统/.test(text)) {
+        jpsSys.push('室内消火栓系统');
+        info.消防.系统.push('室内消火栓系统');
+    }
+    if (/自动喷水|自动喷淋|喷淋系统/.test(text)) {
+        jpsSys.push('自动喷淋系统');
+        info.消防.系统.push('自动喷淋系统');
+    }
+    if (/大空间智能|智能灭火/.test(text)) {
+        jpsSys.push('大空间智能灭火系统');
+        info.消防.系统.push('大空间智能灭火系统');
+    }
+    if (/气体灭火/.test(text)) {
+        jpsSys.push('气体灭火系统');
+        info.消防.系统.push('气体灭火系统');
+    }
+    if (/灭火器/.test(text)) info.消防.系统.push('建筑灭火器配置');
     
-    // 暖通 - 冷热源
-    const coolPat = /地源热泵|空气源热泵|冷水机组|VRV|多联机|分体空调|风机盘管/g;
-    const coolFinds = text.match(coolPat);
-    if (coolFinds) info.mep.暖通.冷热源 = [...new Set(coolFinds)].slice(0, 2).join('、').substring(0, 30);
+    // 管材
+    if (/衬塑钢管/.test(text)) jpsMat.push('衬塑钢管');
+    if (/球墨铸铁管/.test(text)) jpsMat.push('给水球墨铸铁管');
+    if (/热镀锌|热浸锌/.test(text)) jpsMat.push('热浸锌镀锌钢管');
+    if (/HDPE|双壁波纹管/.test(text)) jpsMat.push('HDPE双壁波纹管');
+    if (/不锈钢/.test(text)) jpsMat.push('S31603不锈钢');
     
-    // 暖通 - 供暖
-    const heatPat = /散热器|地采暖|地热采暖|暖气片|辐射供暖|供暖系统|热水地板辐射/g;
-    const heatFinds = text.match(heatPat);
-    if (heatFinds) info.mep.暖通.供暖 = [...new Set(heatFinds)].slice(0, 2).join('、').substring(0, 25);
+    // 设备
+    if (/变频.*泵|加压泵/.test(text)) jpsEq.push('变频生活加压泵组');
+    if (/消防水池|消防水箱/.test(text)) {
+        const capMatch = text.match(/(\d+)[^\d]*(?:立方|m³|m3)/);
+        if (capMatch) {
+            jpsEq.push(`消防水池${capMatch[1]}m³`);
+            info.消防.设备.push(`消防水池${capMatch[1]}m³`);
+        } else {
+            jpsEq.push('消防水池');
+            info.消防.设备.push('消防水池');
+        }
+    }
+    if (/紫外线消毒/.test(text)) jpsEq.push('紫外线消毒器');
     
-    // 暖通 - 防排烟
-    const smokePat = /正压送风|机械排烟|防排烟|排烟风机|加压送风|补风系统|排烟窗/g;
-    const smokeFinds = text.match(smokePat);
-    if (smokeFinds) info.mep.暖通.防排烟 = [...new Set(smokeFinds)].slice(0, 3);
+    info.给排水.系统 = [...new Set(jpsSys)].slice(0, 6);
+    info.给排水.管材 = [...new Set(jpsMat)].slice(0, 4);
+    info.给排水.设备 = [...new Set(jpsEq)].slice(0, 4);
     
-    // 电气 - 变压器
-    const transPat = /SCB\d+[^0-9]*(\d+)kVA|(\d+)kVA[^变压器]*变压器|变压器[^\d]*?(\d+)kVA/;
-    const transMatch = text.match(transPat);
+    // 【暖通专业】
+    const ntSys = [], ntMat = [], ntEq = [];
+    
+    // 冷热源
+    if (/地源热泵/.test(text)) ntSys.push('地源热泵');
+    if (/空气源热泵/.test(text)) ntSys.push('空气源热泵');
+    if (/冷水机组/.test(text)) ntSys.push('冷水机组');
+    if (/VRV|多联机/.test(text)) ntSys.push('VRV多联机');
+    if (/风机盘管/.test(text)) ntSys.push('风机盘管+新风');
+    if (/分体空调/.test(text)) ntSys.push('分体空调');
+    
+    // 供暖
+    if (/散热器|暖气片/.test(text)) ntSys.push('散热器供暖');
+    if (/地板辐射|地采暖|地热采暖/.test(text)) ntSys.push('地板辐射供暖');
+    if (/集中供暖|供暖系统/.test(text) && !/散热器|地板/.test(text)) ntSys.push('集中供暖系统');
+    
+    // 通风防排烟
+    if (/机械通风|机械排风/.test(text)) ntSys.push('机械通风系统');
+    if (/自然通风/.test(text)) ntSys.push('自然通风');
+    if (/正压送风|机械排烟|防排烟/.test(text)) {
+        ntSys.push('防排烟系统');
+        info.消防.系统.push('防排烟系统');
+    }
+    if (/地下车库.*排风|车库.*排烟/.test(text)) ntSys.push('车库排风排烟系统');
+    if (/换气.*次/.test(text)) ntSys.push('换气通风系统');
+    
+    // 管材保温
+    if (/无缝钢管/.test(text)) ntMat.push('无缝钢管');
+    if (/橡塑保温|保温材料/.test(text)) ntMat.push('橡塑保温');
+    if (/保温.*3cm|3cm.*保温/.test(text)) ntMat.push('3cm厚橡塑保温');
+    
+    // 设备
+    if (/热力入户|换热站/.test(text)) ntEq.push('换热机组');
+    if (/空气幕/.test(text)) ntEq.push('电热型空气幕');
+    if (/CO.*监测|浓度监测/.test(text)) ntEq.push('CO浓度监测装置');
+    
+    info.暖通.系统 = [...new Set(ntSys)].slice(0, 6);
+    info.暖通.管材 = [...new Set(ntMat)].slice(0, 3);
+    info.暖通.设备 = [...new Set(ntEq)].slice(0, 4);
+    
+    // 【电气专业】
+    const dqSys = [], dqMat = [], dqEq = [];
+    
+    // 供配电
+    if (/10kV|10KV/.test(text)) dqSys.push('10kV高压供电');
+    if (/双路电源|双重电源/.test(text)) dqSys.push('双路电源供电');
+    if (/柴油发电机|柴发/.test(text)) {
+        dqSys.push('柴油发电机备用电源');
+        dqEq.push('柴油发电机');
+    }
+    if (/TN-S|TN-S系统/.test(text)) dqSys.push('TN-S配电系统');
+    if (/树干式|放射式|混合式/.test(text)) dqSys.push('配电系统');
+    
+    // 照明
+    if (/LED.*灯|节能灯具/.test(text)) dqSys.push('LED节能照明');
+    if (/应急照明|疏散照明/.test(text)) dqSys.push('应急照明系统');
+    if (/集中控制型.*应急|智能应急/.test(text)) dqSys.push('集中控制型应急照明');
+    
+    // 变压器
+    const transMatch = text.match(/(\d+)kVA[^\d]*变压器|变压器[^\d]*(\d+)kVA/);
     if (transMatch) {
-        info.mep.电气.变压器 = (transMatch[1] || transMatch[2] || transMatch[3]) + 'kVA';
+        const cap = transMatch[1] || transMatch[2];
+        dqEq.push(`${cap}kVA变压器`);
+        info.电气.系统.push(`变压器容量${cap}kVA`);
     }
     
-    // 电气 - 供电
-    const powerPat = /10kV|双路电源|柴油发电机|自备发电机|应急电源|备用电源/g;
-    const powerFinds = text.match(powerPat);
-    if (powerFinds) info.mep.电气.供电 = [...new Set(powerFinds)].slice(0, 2).join('、').substring(0, 25);
+    // 管材
+    if (/矿物绝缘.*电缆|柔性矿物绝缘/.test(text)) dqMat.push('矿物绝缘电缆');
+    if (/耐火电缆/.test(text)) dqMat.push('耐火电缆');
+    if (/阻燃电缆|阻燃导线/.test(text)) dqMat.push('阻燃电缆/导线');
+    if (/WDZ-YJY|WDZ-BYJ/.test(text)) dqMat.push('WDZ低烟无卤电缆');
+    if (/铜芯/.test(text)) dqMat.push('铜芯电缆');
     
-    // 电气 - 照明
-    const lightPat = /LED灯|应急照明|疏散指示|智能照明|节能灯具/g;
-    const lightFinds = text.match(lightPat);
-    if (lightFinds) info.mep.电气.照明 = [...new Set(lightFinds)].slice(0, 3);
+    // 防雷
+    if (/二类防雷|防雷建筑/.test(text)) dqSys.push('二类防雷建筑');
+    if (/接闪带|接闪杆|接闪网/.test(text)) dqSys.push('接闪带/杆/网防雷');
+    if (/防雷接地/.test(text)) dqSys.push('防雷接地系统');
     
-    // 电气 - 消防电
-    const fireElecPat = /火灾自动报警|应急照明|疏散指示|消防广播|消防电源监控|电气火灾监控/g;
-    const fireElecFinds = text.match(fireElecPat);
-    if (fireElecFinds) info.mep.电气.消防电 = [...new Set(fireElecFinds)].slice(0, 4);
+    // EPS/UPS
+    if (/EPS.*供电|EPS电源/.test(text)) dqEq.push('EPS应急电源');
+    if (/UPS|不间断电源/.test(text)) dqEq.push('UPS不间断电源');
     
-    // 电气 - 智能化
-    const intelPat = /视频监控|门禁|停车场管理|能耗监测|LED显示|校园网络|综合布线|公共广播|信息发布|校园一卡通|多媒体教学|智慧校园/g;
-    const intelFinds = text.match(intelPat);
-    if (intelFinds) info.mep.电气.智能化 = [...new Set(intelFinds)].slice(0, 6);
+    info.电气.系统 = [...new Set(dqSys)].slice(0, 6);
+    info.电气.管材 = [...new Set(dqMat)].slice(0, 4);
+    info.电气.设备 = [...new Set(dqEq)].slice(0, 4);
     
-    // 业态（固定学校类）
+    // 【弱电专业】
+    const rdSys = [], rdMat = [], rdEq = [];
+    
+    // 综合布线
+    if (/综合布线/.test(text)) rdSys.push('综合布线系统');
+    if (/光纤入室|全光网络/.test(text)) rdSys.push('全光网络');
+    if (/超六类|六类网线/.test(text)) rdMat.push('超六类网线');
+    if (/光纤|光缆/.test(text)) rdMat.push('光纤/光缆');
+    
+    // 网络系统
+    if (/校园内网|校园外网|设备网/.test(text)) rdSys.push('校园网络系统');
+    if (/Wi-Fi|WiFi|无线网络/.test(text)) rdSys.push('Wi-Fi 6无线覆盖');
+    if (/核心交换机|OLT/.test(text)) rdEq.push('核心交换机/OLT设备');
+    
+    // 安防系统
+    if (/视频监控/.test(text)) rdSys.push('视频监控系统');
+    if (/门禁/.test(text)) rdSys.push('门禁管理系统');
+    if (/入侵报警|周界报警|电子围栏/.test(text)) rdSys.push('入侵报警系统');
+    if (/停车场|车牌识别/.test(text)) rdSys.push('停车场管理系统');
+    if (/电子巡查|巡更/.test(text)) rdSys.push('电子巡查系统');
+    
+    // 广播
+    if (/公共广播|教学广播/.test(text)) {
+        rdSys.push('公共广播系统');
+        info.消防.系统.push('消防应急广播');
+    }
+    if (/信息发布|LED显示/.test(text)) rdSys.push('信息发布系统');
+    if (/能耗监测/.test(text)) rdSys.push('能耗监测系统');
+    if (/多媒体教学|智慧教学/.test(text)) rdSys.push('多媒体教学系统');
+    if (/一卡通/.test(text)) rdSys.push('校园一卡通系统');
+    
+    info.弱电.系统 = [...new Set(rdSys)].slice(0, 8);
+    info.弱电.管材 = [...new Set(rdMat)].slice(0, 3);
+    info.弱电.设备 = [...new Set(rdEq)].slice(0, 3);
+    
+    // 【消防专业（补充）】
+    // 火灾自动报警
+    if (/火灾自动报警|集中报警/.test(text)) {
+        info.消防.系统.push('火灾自动报警系统');
+        const fireEq = [];
+        if (/感烟探测器/.test(text)) fireEq.push('感烟探测器');
+        if (/感温探测器/.test(text)) fireEq.push('感温探测器');
+        if (/手动报警|报警按钮/.test(text)) fireEq.push('手动报警按钮');
+        if (/消防电话/.test(text)) fireEq.push('消防电话系统');
+        if (/声光警报|声光报警/.test(text)) fireEq.push('声光警报器');
+        if (fireEq.length > 0) info.消防.设备.push(...fireEq.slice(0, 3));
+    }
+    if (/消防联动|联动控制/.test(text)) info.消防.系统.push('消防联动控制系统');
+    if (/电气火灾监控/.test(text)) info.消防.系统.push('电气火灾监控系统');
+    if (/防火门监控/.test(text)) info.消防.系统.push('防火门监控系统');
+    if (/消防电源监控/.test(text)) info.消防.系统.push('消防电源监控系统');
+    
+    // 去重
+    info.消防.系统 = [...new Set(info.消防.系统)].slice(0, 8);
+    info.消防.设备 = [...new Set(info.消防.设备)].slice(0, 5);
+    
+    // 业态
     info.bizType = '学校类';
     
-    // 记录警告
+    // 警告
     if (info.totalArea === 0) info.warnings.push('总建筑面积');
     if (info.buildings.length === 0) info.warnings.push('栋号信息');
     
     return info;
 }
+
 
 
 
@@ -451,7 +595,7 @@ function autoFillForm(info) {
     return info;
 }
 
-// ========== 显示提取结果（精简版弹窗）==========
+// ========== 显示提取结果（5专业规范化版）==========
 function showExtractionResults(info) {
     // 构建栋号信息
     let buildingHtml = '';
@@ -465,12 +609,40 @@ function showExtractionResults(info) {
         });
     }
 
+    // 构建5专业结构化内容
+    const mep5 = info.mep || {
+        给排水: { 系统: [], 管材: [], 设备: [] },
+        暖通: { 系统: [], 管材: [], 设备: [] },
+        电气: { 系统: [], 管材: [], 设备: [] },
+        弱电: { 系统: [], 管材: [], 设备: [] },
+        消防: { 系统: [], 管材: [], 设备: [] }
+    };
+
+    function buildMepSection(name, data) {
+        if (!data || (!data.系统 || data.系统.length === 0) && (!data.管材 || data.管材.length === 0) && (!data.设备 || data.设备.length === 0)) {
+            return '';
+        }
+        let html = `<div class="mep-section">
+            <div class="mep-section-title">◆ ${name}</div>`;
+        if (data.系统 && data.系统.length > 0) {
+            html += `<div class="mep-row"><span class="mep-label">系统配置</span><span class="mep-value">${data.系统.join('、')}</span></div>`;
+        }
+        if (data.管材 && data.管材.length > 0) {
+            html += `<div class="mep-row"><span class="mep-label">管材材质</span><span class="mep-value">${data.管材.join('、')}</span></div>`;
+        }
+        if (data.设备 && data.设备.length > 0) {
+            html += `<div class="mep-row"><span class="mep-label">主要设备</span><span class="mep-value">${data.设备.join('、')}</span></div>`;
+        }
+        html += '</div>';
+        return html;
+    }
+
     // 构建未识别项
     let warningsHtml = '';
     const warnings = [];
     if (!info.name) warnings.push('项目名称');
     if (!info.totalArea) warnings.push('总建筑面积');
-    if (!info.buildings || info.buildings.length === 0) warnings.push('楼栋信息');
+    if (!info.buildings || info.buildings.length === 0) warnings.push('栋号信息');
     if (info.warnings) warnings.push(...info.warnings);
     if (warnings.length > 0) {
         warningsHtml = `<div class="result-warnings">
@@ -478,20 +650,6 @@ function showExtractionResults(info) {
             <div class="result-warnings-list">${warnings.map(w => `· ${w}`).join('<br>')}</div>
         </div>`;
     }
-
-    // 构建机电摘要（一行一个专业，简洁）- 使用新的mep结构
-    const fireArr = info.mep?.给排水?.消防 || [];
-    const fireStr = Array.isArray(fireArr) && fireArr.length > 0 ? fireArr.join('、') : '—';
-    const hotStr = info.mep?.给排水?.热水 || '—';
-    const coolStr = info.mep?.暖通?.冷热源 || '—';
-    const heatStr = info.mep?.暖通?.供暖 || '—';
-    const smokeStr = info.mep?.暖通?.防排烟 || '—';
-    const transStr = info.mep?.电气?.变压器 || '';
-    const powerStr = info.mep?.电气?.供电 || '';
-    const intelArr = info.mep?.电气?.智能化 || [];
-    const intelStr = Array.isArray(intelArr) && intelArr.length > 0 ? intelArr.join('、') : '—';
-    const fireElecArr = info.mep?.电气?.消防电 || [];
-    const fireElecStr = Array.isArray(fireElecArr) && fireElecArr.length > 0 ? fireElecArr.join('、') : '—';
 
     const resultsHtml = `
     <div class="extraction-result-modal">
@@ -517,22 +675,13 @@ function showExtractionResults(info) {
             </div>
 
             <div class="result-section">
-                <div class="result-section-title">🔧 机电专业摘要</div>
-                <div class="result-mep-row">
-                    <span class="result-mep-label">给排水</span>
-                    <span class="result-mep-value">${fireStr}</span>
-                </div>
-                <div class="result-mep-row">
-                    <span class="result-mep-label">暖　通</span>
-                    <span class="result-mep-value">${info.mep?.暖通?.冷热源 || '' || '—'} ${info.heating ? '· ' + info.heating : ''}</span>
-                </div>
-                <div class="result-mep-row">
-                    <span class="result-mep-label">热　水</span>
-                    <span class="result-mep-value">${info.mep?.给排水?.热水 || '' || '—'}</span>
-                </div>
-                <div class="result-mep-row">
-                    <span class="result-mep-label">电　气</span>
-                    <span class="result-mep-value">${info.mep?.电气?.变压器 || '' ? info.mep?.电气?.变压器 || '' + '变压器 · ' : ''}${intelStr}</span>
+                <div class="result-section-title">🔧 机电专业（5大专业）</div>
+                <div class="mep-container">
+                    ${buildMepSection('给排水', mep5.给排水)}
+                    ${buildMepSection('暖通', mep5.暖通)}
+                    ${buildMepSection('电气', mep5.电气)}
+                    ${buildMepSection('弱电', mep5.弱电)}
+                    ${buildMepSection('消防', mep5.消防)}
                 </div>
             </div>
 
@@ -543,7 +692,6 @@ function showExtractionResults(info) {
         </div>
     </div>`;
 
-    // 显示弹窗
     let modal = document.getElementById('extractionModal');
     if (!modal) {
         modal = document.createElement('div');
@@ -554,6 +702,7 @@ function showExtractionResults(info) {
     modal.innerHTML = resultsHtml;
     modal.style.display = 'flex';
 }
+
 
 function closeExtractionModal() {
     const modal = document.getElementById('extractionModal');
