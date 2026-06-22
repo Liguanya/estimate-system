@@ -1342,3 +1342,41 @@ body {
     border-top: 1px solid #f0f0f0;
     text-align: right;
 }
+/* 提取结果 - 结构化专业配置增强 */
+.result-mep-block {
+    display: flex;
+    align-items: flex-start;
+    margin-bottom: 8px;
+    padding: 8px 12px;
+    background: #f8fafc;
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.6;
+}
+.result-mep-prof {
+    font-weight: 600;
+    color: #374151;
+    min-width: 50px;
+    flex-shrink: 0;
+    padding-top: 1px;
+}
+.result-mep-content {
+    flex: 1;
+    color: #1f2937;
+    word-break: break-all;
+}
+.result-mep-tag {
+    display: inline-block;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-right: 6px;
+    font-weight: 500;
+    vertical-align: middle;
+}
+.result-highlight {
+    color: #10b981;
+    font-weight: 600;
+}
