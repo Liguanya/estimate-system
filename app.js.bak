@@ -372,26 +372,26 @@ function autoFillForm(info) {
     onBusinessTypeChange();
 
     // 给排水专业
-    if (info.mep?.给排水?.热水 || '') {
+    if (info.hotWater) {
         const hotWaterSelect = document.getElementById('hotWater');
-        if (/太阳能/.test(info.mep?.给排水?.热水 || '')) hotWaterSelect.value = '太阳能';
-        else if (/空气源/.test(info.mep?.给排水?.热水 || '')) hotWaterSelect.value = '空气源热泵';
+        if (/太阳能/.test(info.hotWater)) hotWaterSelect.value = '太阳能';
+        else if (/空气源/.test(info.hotWater)) hotWaterSelect.value = '空气源热泵';
     }
 
-    if (info.mep?.给排水?.消防 || [] && info.mep?.给排水?.消防 || [].length > 0) {
+    if (info.fireProtection && info.fireProtection.length > 0) {
         const fireCheckboxes = document.querySelectorAll('#section-info input[value="室内消火栓"], #section-info input[value="自动喷淋"]');
         fireCheckboxes.forEach(cb => {
-            if (info.mep?.给排水?.消防 || [].some(f => f.includes(cb.value))) {
+            if (info.fireProtection.some(f => f.includes(cb.value))) {
                 cb.checked = true;
             }
         });
     }
 
     // 暖通专业
-    if (info.mep?.暖通?.冷热源 || '') {
+    if (info.coolHeatSource) {
         const heatingSelect = document.getElementById('heatingType');
-        if (/地源热泵/.test(info.mep?.暖通?.冷热源 || '')) heatingSelect.value = '地源热泵';
-        else if (/空气源/.test(info.mep?.暖通?.冷热源 || '')) heatingSelect.value = '空气源热泵';
+        if (/地源热泵/.test(info.coolHeatSource)) heatingSelect.value = '地源热泵';
+        else if (/空气源/.test(info.coolHeatSource)) heatingSelect.value = '空气源热泵';
     }
 
     if (info.acSystem) {
@@ -400,24 +400,24 @@ function autoFillForm(info) {
         else if (/VRV|多联机/.test(info.acSystem)) acSelect.value = '多联机';
     }
 
-    if (info.mep?.暖通?.防排烟 || [] && info.mep?.暖通?.防排烟 || [].length > 0) {
+    if (info.smokeControl && info.smokeControl.length > 0) {
         const smokeCheckboxes = document.querySelectorAll('#section-info input[value="正压送风"], #section-info input[value="机械排烟"]');
         smokeCheckboxes.forEach(cb => {
-            if (info.mep?.暖通?.防排烟 || [].some(s => s.includes(cb.value))) {
+            if (info.smokeControl.some(s => s.includes(cb.value))) {
                 cb.checked = true;
             }
         });
     }
 
     // 电气专业
-    if (info.mep?.电气?.变压器 || '') {
-        document.getElementById('transformerCapacity').value = info.mep?.电气?.变压器 || '';
+    if (info.transformer) {
+        document.getElementById('transformerCapacity').value = info.transformer;
     }
 
-    if (info.mep?.电气?.供电 || '') {
+    if (info.power) {
         const powerCheckboxes = document.querySelectorAll('#section-info input[value="柴发"], #section-info input[value="双电源切换"]');
         powerCheckboxes.forEach(cb => {
-            if (info.mep?.电气?.供电 || ''.includes('发电机') || info.mep?.电气?.供电 || ''.includes('双路')) {
+            if (info.power.includes('发电机') || info.power.includes('双路')) {
                 cb.checked = true;
             }
         });
@@ -454,19 +454,13 @@ function showExtractionResults(info) {
         </div>`;
     }
 
-    // 构建机电摘要（一行一个专业，简洁）- 使用新的mep结构
-    const fireArr = info.mep?.给排水?.消防 || [];
-    const fireStr = Array.isArray(fireArr) && fireArr.length > 0 ? fireArr.join('、') : '—';
-    const hotStr = info.mep?.给排水?.热水 || '—';
-    const coolStr = info.mep?.暖通?.冷热源 || '—';
-    const heatStr = info.mep?.暖通?.供暖 || '—';
-    const smokeStr = info.mep?.暖通?.防排烟 || '—';
-    const transStr = info.mep?.电气?.变压器 || '';
-    const powerStr = info.mep?.电气?.供电 || '';
-    const intelArr = info.mep?.电气?.智能化 || [];
-    const intelStr = Array.isArray(intelArr) && intelArr.length > 0 ? intelArr.join('、') : '—';
-    const fireElecArr = info.mep?.电气?.消防电 || [];
-    const fireElecStr = Array.isArray(fireElecArr) && fireElecArr.length > 0 ? fireElecArr.join('、') : '—';
+    // 构建机电摘要（一行一个专业，简洁）
+    const fireStr = Array.isArray(info.fireProtection) 
+        ? info.fireProtection.filter(f => f !== '未识别').join('、') 
+        : (info.fireProtection || '未识别');
+    const intelStr = Array.isArray(info.intelligent) 
+        ? info.intelligent.filter(i => i !== '未识别').join('、') 
+        : (info.intelligent || '未识别');
 
     const resultsHtml = `
     <div class="extraction-result-modal">
@@ -499,15 +493,15 @@ function showExtractionResults(info) {
                 </div>
                 <div class="result-mep-row">
                     <span class="result-mep-label">暖　通</span>
-                    <span class="result-mep-value">${info.mep?.暖通?.冷热源 || '' || '—'} ${info.heating ? '· ' + info.heating : ''}</span>
+                    <span class="result-mep-value">${info.coolHeatSource || '—'} ${info.heating ? '· ' + info.heating : ''}</span>
                 </div>
                 <div class="result-mep-row">
                     <span class="result-mep-label">热　水</span>
-                    <span class="result-mep-value">${info.mep?.给排水?.热水 || '' || '—'}</span>
+                    <span class="result-mep-value">${info.hotWater || '—'}</span>
                 </div>
                 <div class="result-mep-row">
                     <span class="result-mep-label">电　气</span>
-                    <span class="result-mep-value">${info.mep?.电气?.变压器 || '' ? info.mep?.电气?.变压器 || '' + '变压器 · ' : ''}${intelStr}</span>
+                    <span class="result-mep-value">${info.transformer ? info.transformer + '变压器 · ' : ''}${intelStr}</span>
                 </div>
             </div>
 
