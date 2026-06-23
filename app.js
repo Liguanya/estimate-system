@@ -106,46 +106,78 @@ async function loadHuayuanProjectData() {
     }
 }
 
-// ========== Word文档解析功能（增强版：表格+文本双提取）==========
+// ========== Word文档解析功能（增强版：超时保护+双重提取）==========
 // 策略：所有文件都提取表格数据，确保设备表完整提取
 async function parseWordDocument(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
+        let hasResolved = false;
+        
+        // 超时保护：30秒强制结束
+        const timeout = setTimeout(() => {
+            if (!hasResolved) {
+                console.warn('Word解析超时，尝试快速模式...');
+                hasResolved = true;
+                resolve('[解析超时]\n');
+            }
+        }, 30000);
+        
         reader.onload = async function(event) {
             try {
                 const arrayBuffer = reader.result;
-                const fileSizeMB = file.size / 1024 / 1024;
+                let combinedText = '';
                 
-                let rawText = '';
-                let mdText = '';
-                
-                // 第一步：纯文本提取（快速）
+                // 方案1：纯文本提取（最快）
                 updateProcessingStatus('正在快速解析文档...', 20);
-                const rawResult = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
-                rawText = rawResult.value;
-                
-                // 第二步：表格Markdown提取（确保设备表完整）
-                updateProcessingStatus('正在提取设备材料表...', 40);
-                const mdResult = await mammoth.convertToMarkdown({ arrayBuffer: arrayBuffer });
-                mdText = mdResult.value.replace(/<[^>]+>/g, '');
-                
-                updateProcessingStatus('正在提取项目数据...', 70);
-                // 合并：纯文本 + 表格数据
-                const combinedText = rawText + '\n\n=== 主要设备材料表 ===\n' + mdText;
-                
-                updateProcessingStatus('正在提取项目数据...', 85);
-                resolve(combinedText);
-            } catch (error) {
-                // 出错时降级为纯文本
                 try {
-                    const rawResult = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
-                    resolve(rawResult.value);
+                    const rawResult = await Promise.race([
+                        mammoth.extractRawText({ arrayBuffer: arrayBuffer }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('extractRawText超时')), 15000))
+                    ]);
+                    combinedText = rawResult.value;
                 } catch (e) {
+                    console.warn('纯文本提取失败:', e);
+                    combinedText = '';
+                }
+                
+                // 方案2：Markdown表格提取（补充设备表）
+                updateProcessingStatus('正在提取设备材料表...', 50);
+                try {
+                    const mdResult = await Promise.race([
+                        mammoth.convertToMarkdown({ arrayBuffer: arrayBuffer }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('convertToMarkdown超时')), 20000))
+                    ]);
+                    const mdText = mdResult.value.replace(/<[^>]+>/g, '');
+                    if (mdText && mdText.trim()) {
+                        combinedText += '\n\n=== 主要设备材料表 ===\n' + mdText;
+                    }
+                } catch (e) {
+                    console.warn('Markdown提取失败（不影响整体）:', e);
+                }
+                
+                if (!hasResolved) {
+                    hasResolved = true;
+                    clearTimeout(timeout);
+                    updateProcessingStatus('正在提取项目数据...', 85);
+                    resolve(combinedText || '[解析内容为空]');
+                }
+            } catch (error) {
+                if (!hasResolved) {
+                    hasResolved = true;
+                    clearTimeout(timeout);
                     reject(error);
                 }
             }
         };
-        reader.onerror = reject;
+        
+        reader.onerror = function(error) {
+            if (!hasResolved) {
+                hasResolved = true;
+                clearTimeout(timeout);
+                reject(error);
+            }
+        };
+        
         reader.readAsArrayBuffer(file);
     });
 }
