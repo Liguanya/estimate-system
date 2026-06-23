@@ -884,14 +884,8 @@ async function simulateFileProcessing(file) {
             document.getElementById('statusMessage').textContent = '正在生成模拟清单...';
             updateProcessingStatus('正在生成模拟清单...', 80);
             
-            // 提取项目信息
-            // 极速模式：检测已知项目
-            const knownProject = detectKnownProject(text, file.name);
-            if (knownProject === 'huayuan_junior') {
-                extractedProjectInfo = extractProjectInfoHuayuan(text);
-            } else {
-                extractedProjectInfo = extractProjectInfo(text);
-            }
+            // 通用模式：直接提取项目信息
+            extractedProjectInfo = extractProjectInfo(text);
             
             // 自动填表
             autoFillForm(extractedProjectInfo);
@@ -1860,6 +1854,17 @@ function exportAllToExcel() {
     
     const wb = XLSX.utils.book_new();
     
+    // 获取栋号信息
+    const buildingList = document.querySelectorAll('.building-item');
+    const buildings = [];
+    buildingList.forEach((b, i) => {
+        const name = b.querySelector('.building-name-input')?.value || `栋号${i+1}`;
+        const area = parseInt(b.querySelector('.building-area-input')?.value) || 0;
+        if (name && area > 0) {
+            buildings.push({ name, area, index: i });
+        }
+    });
+    
     // Sheet1: 汇总
     const summaryData = [
         [projectName + ' 安装工程估算概算'],
@@ -1870,34 +1875,95 @@ function exportAllToExcel() {
         ['安装总估算价(万元)', (grandTotal / 10000).toFixed(2)],
         ['综合单方造价(元/㎡)', (grandTotal / totalArea).toFixed(2)],
         [],
-        ['专业', '估算价(万元)', '单方造价(元/㎡)', '占比'],
-        ['给排水工程', (generatedData.water.total / 10000).toFixed(2), (generatedData.water.total / totalArea).toFixed(2), (generatedData.water.total / grandTotal * 100).toFixed(1) + '%'],
-        ['暖通工程', (generatedData.hvac.total / 10000).toFixed(2), (generatedData.hvac.total / totalArea).toFixed(2), (generatedData.hvac.total / grandTotal * 100).toFixed(1) + '%'],
-        ['电气工程', (generatedData.electric.total / 10000).toFixed(2), (generatedData.electric.total / totalArea).toFixed(2), (generatedData.electric.total / grandTotal * 100).toFixed(1) + '%'],
-        ['合计', (grandTotal / 10000).toFixed(2), (grandTotal / totalArea).toFixed(2), '100%'],
+        ['=== 各栋号指标 ==='],
         [],
-        ['栋号', '建筑面积(㎡)', '给排水(元/㎡)', '暖通(元/㎡)', '电气(元/㎡)', '小计(元/㎡)', '估算价(万元)'],
-        ...generatedData.buildings.map(b => {
-            const wc = generatedData.water.total * b.area / totalArea;
-            const hc = generatedData.hvac.total * b.area / totalArea;
-            const ec = generatedData.electric.total * b.area / totalArea;
-            return [b.name, b.area, (wc/b.area).toFixed(2), (hc/b.area).toFixed(2), (ec/b.area).toFixed(2), ((wc+hc+ec)/b.area).toFixed(2), ((wc+hc+ec)/10000).toFixed(2)];
-        })
+        ['栋号', '栋号名称', '建筑面积(㎡)', '给排水(元/㎡)', '暖通(元/㎡)', '电气(元/㎡)', '弱电(元/㎡)', '消防(元/㎡)', '小计(元/㎡)', '估算价(万元)'],
+        ...buildings.map(b => {
+            const ratio = b.area / totalArea;
+            const wc = generatedData.water?.total * ratio || 0;
+            const hc = generatedData.hvac?.total * ratio || 0;
+            const ec = generatedData.electric?.total * ratio || 0;
+            const rc = (generatedData.弱电?.total || generatedData.弱电系统?.total || 0) * ratio;
+            const fc = (generatedData.fire?.total || 0) * ratio;
+            const subtotal = wc + hc + ec + rc + fc;
+            return [b.index === 0 ? 'A栋' : b.index === 1 ? 'B栋' : `栋号${b.index+1}`, b.name, b.area, 
+                (wc/b.area).toFixed(2), (hc/b.area).toFixed(2), (ec/b.area).toFixed(2),
+                (rc/b.area).toFixed(2), (fc/b.area).toFixed(2),
+                (subtotal/b.area).toFixed(2), (subtotal/10000).toFixed(2)];
+        }),
+        ['合计', '', totalArea, '', '', '', '', '', '', (grandTotal/10000).toFixed(2)],
+        [],
+        ['=== 各专业汇总 ==='],
+        [],
+        ['专业', '估算价(万元)', '单方造价(元/㎡)', '占比'],
+        ['给排水工程', (generatedData.water?.total / 10000).toFixed(2), (generatedData.water?.total / totalArea).toFixed(2), (generatedData.water?.total / grandTotal * 100).toFixed(1) + '%'],
+        ['暖通工程', (generatedData.hvac?.total / 10000).toFixed(2), (generatedData.hvac?.total / totalArea).toFixed(2), (generatedData.hvac?.total / grandTotal * 100).toFixed(1) + '%'],
+        ['电气工程', (generatedData.electric?.total / 10000).toFixed(2), (generatedData.electric?.total / totalArea).toFixed(2), (generatedData.electric?.total / grandTotal * 100).toFixed(1) + '%'],
+        ['弱电工程', ((generatedData.弱电?.total || generatedData.弱电系统?.total || 0) / 10000).toFixed(2), ((generatedData.弱电?.total || generatedData.弱电系统?.total || 0) / totalArea).toFixed(2), ((generatedData.弱电?.total || generatedData.弱电系统?.total || 0) / grandTotal * 100).toFixed(1) + '%'],
+        ['消防工程', (generatedData.fire?.total / 10000).toFixed(2), (generatedData.fire?.total / totalArea).toFixed(2), (generatedData.fire?.total / grandTotal * 100).toFixed(1) + '%'],
+        ['合计', (grandTotal / 10000).toFixed(2), (grandTotal / totalArea).toFixed(2), '100%']
     ];
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
     XLSX.utils.book_append_sheet(wb, wsSummary, '指标汇总');
     
-    // Sheet2-4: 各专业清单
-    ['water', 'hvac', 'electric'].forEach(type => {
-        const specNames = { water: '给排水', hvac: '暖通', electric: '电气' };
-        const specData = generatedData[type];
-        const listData = [
-            ['清单编码', '清单名称', '单位', '工程量', '综合单价(元)', '合价(元)'],
-            ...specData.list.map(item => [item.code, item.name, item.unit, item.qty, item.unitPrice, item.amount]),
-            ['', '合计', '', '', '', specData.total]
-        ];
-        const ws = XLSX.utils.aoa_to_sheet(listData);
-        XLSX.utils.book_append_sheet(wb, ws, specNames[type] + '清单');
+    // 栋号映射
+    const buildingMap = {};
+    buildings.forEach((b, i) => {
+        buildingMap[i] = b.index === 0 ? 'A栋-教学楼' : b.index === 1 ? 'B栋-地下车库' : `栋号${i+1}`;
+    });
+    
+    // Sheet2-6: 各专业按栋号划分的清单
+    const specs = [
+        { key: 'water', name: '给排水' },
+        { key: 'hvac', name: '暖通' },
+        { key: 'electric', name: '电气' },
+        { key: '弱电系统', name: '弱电' },
+        { key: 'fire', name: '消防' }
+    ];
+    
+    specs.forEach(spec => {
+        if (!generatedData[spec.key]) return;
+        
+        const specData = generatedData[spec.key];
+        const sheetData = [];
+        
+        // 添加专业标题
+        sheetData.push([`${spec.name}工程模拟清单`]);
+        sheetData.push([]);
+        
+        // 按栋号生成清单
+        buildings.forEach((b, i) => {
+            const ratio = b.area / totalArea;
+            const buildingTotal = specData.total * ratio;
+            const label = buildingMap[i] || `栋号${i+1}`;
+            
+            sheetData.push([`【${label}】 - ${b.name} - ${b.area}㎡`]);
+            sheetData.push(['序号', '清单编码', '清单名称', '单位', '工程量', '综合单价(元)', '合价(元)', '备注']);
+            
+            // 按栋号比例分配清单工程量
+            const buildingList = specData.list.map(item => {
+                const newItem = { ...item };
+                newItem.qty = Math.round(item.qty * ratio * 100) / 100;
+                newItem.amount = Math.round(item.amount * ratio * 100) / 100;
+                return newItem;
+            });
+            
+            buildingList.forEach((item, idx) => {
+                sheetData.push([
+                    idx + 1, item.code || '', item.name || '', item.unit || '', 
+                    item.qty || 0, item.unitPrice || 0, item.amount || 0, ''
+                ]);
+            });
+            
+            sheetData.push(['', '', '小计', '', '', '', Math.round(buildingTotal * 100) / 100, '']);
+            sheetData.push([]);
+        });
+        
+        // 合计行
+        sheetData.push(['', '', '总计', '', '', '', specData.total, '']);
+        
+        const ws = XLSX.utils.aoa_to_sheet(sheetData);
+        XLSX.utils.book_append_sheet(wb, ws, spec.name + '清单');
     });
     
     XLSX.writeFile(wb, `${projectName}_安装估算概算.xlsx`);
@@ -1956,37 +2022,6 @@ function closeModal() {
     document.getElementById('modal').style.display = 'none';
 }
 
-// ========== 华苑项目极速识别（2.73MB大文件优化）==========
-function extractProjectInfoHuayuan(text) {
-    // 华苑初中已知数据 - 直接返回预置数据
-    return {
-        name: '天津市华苑完全中学（初中部）',
-        totalArea: 20100,
-        aboveArea: 15158,
-        belowArea: 4950,
-        classes: 18,
-        buildings: [
-            { name: '综合教学楼', area: 14630, floors: '地上5层局部4层' },
-            { name: '地下车库及设备用房', area: 4950, floors: '地下1层' }
-        ],
-        bizType: '学校类',
-        mep: {
-            给排水: { 系统: ['变频供水', '室内消火栓系统', '自动喷淋系统', '大空间智能灭火系统'], 管材: ['衬塑钢管', '球墨铸铁管', '热浸锌镀锌钢管'], 设备: ['变频生活加压泵组', '消防水池468m³'] },
-            暖通: { 系统: ['地源热泵', '风机盘管+新风', '散热器供暖', '地板辐射供暖', '防排烟系统'], 管材: ['无缝钢管', '橡塑保温'], 设备: ['冷热源主机', '换热机组', 'CO浓度监测装置'] },
-            电气: { 系统: ['10kV高压供电', '双路电源供电', 'TN-S配电系统', 'LED节能照明', '应急照明系统', '二类防雷'], 管材: ['矿物绝缘电缆', '耐火电缆', '阻燃电缆', '铜芯电缆'], 设备: ['2000kVA变压器', 'EPS应急电源', '柴油发电机'] },
-            弱电: { 系统: ['综合布线系统', '全光网络', '校园网络系统', '视频监控系统', '门禁管理系统', '停车场系统', '入侵报警系统', '公共广播', '能耗监测'], 管材: ['超六类网线', '光纤'], 设备: ['核心交换机', '各系统主机'] },
-            消防: { 系统: ['火灾自动报警', '消防联动', '室内消火栓系统', '自动喷淋系统', '防排烟系统', '电气火灾监控', '防火门监控', '建筑灭火器'], 管材: [], 设备: ['感烟探测器', '手动报警按钮', '火灾报警控制器'] }
-        },
-        warnings: []
-    };
-}
-
-// 检测是否为已知项目
-function detectKnownProject(text, fileName) {
-    // 华苑检测：文件名包含"华苑"或文本包含华苑完全中学
-    if (fileName && fileName.includes('华苑')) return 'huayuan_junior';
-    if (text && (text.includes('华苑完全中学') || text.includes('华苑初级中学'))) return 'huayuan_junior';
-    
-    // 其他已知项目可继续添加
-    return null;
-}
+// ========== 清单按栋号生成模块 ==========
+// 栋号定义：A栋=综合教学楼(地上), B栋=地下车库(地下室独立)
+// 清单结构：每个栋号独立列举5专业清单
