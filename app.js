@@ -10,16 +10,22 @@ const users = [
     { username: 'user02', password: '123456', displayName: '李四' }
 ];
 
-const loginPage = document.getElementById('loginPage');
-const mainPage = document.getElementById('mainPage');
-const loginForm = document.getElementById('loginForm');
-const usernameInput = document.getElementById('username');
-const passwordInput = document.getElementById('password');
-const errorMessage = document.getElementById('errorMessage');
-const currentUserSpan = document.getElementById('currentUser');
-const navList = document.getElementById('navList');
+// DOM元素 - 在DOMContentLoaded后安全获取
+let loginPage, mainPage, loginForm, usernameInput, passwordInput, errorMessage, currentUserSpan, navList;
 
 document.addEventListener('DOMContentLoaded', function() {
+    // 安全获取DOM元素
+    loginPage = document.getElementById('loginPage');
+    mainPage = document.getElementById('mainPage');
+    loginForm = document.getElementById('loginForm');
+    usernameInput = document.getElementById('username');
+    passwordInput = document.getElementById('password');
+    errorMessage = document.getElementById('errorMessage');
+    currentUserSpan = document.getElementById('currentUser');
+    navList = document.getElementById('navList');
+    
+    // 初始化功能
+    initLoginForm();
     checkLoginStatus();
     initNavigation();
     initDragDrop();
@@ -47,25 +53,30 @@ function showMainPage(user) {
     currentUserSpan.textContent = user.displayName;
 }
 
-loginForm.addEventListener('submit', function(e) {
-    e.preventDefault();
-    const username = usernameInput.value.trim();
-    const password = passwordInput.value.trim();
-    const user = users.find(u => u.username === username && u.password === password);
-    if (user) {
-        localStorage.setItem('estimateSystemLoggedIn', 'true');
-        localStorage.setItem('estimateSystemUser', JSON.stringify(user));
-        showMainPage(user);
-    } else {
-        errorMessage.textContent = '用户名或密码错误';
-        usernameInput.parentElement.style.borderColor = '#e74c3c';
-        passwordInput.parentElement.style.borderColor = '#e74c3c';
-        setTimeout(() => {
-            usernameInput.parentElement.style.borderColor = 'transparent';
-            passwordInput.parentElement.style.borderColor = 'transparent';
-        }, 2000);
+// 登录表单提交
+function initLoginForm() {
+    if (loginForm) {
+        loginForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+            const user = users.find(u => u.username === username && u.password === password);
+            if (user) {
+                localStorage.setItem('estimateSystemLoggedIn', 'true');
+                localStorage.setItem('estimateSystemUser', JSON.stringify(user));
+                showMainPage(user);
+            } else {
+                errorMessage.textContent = '用户名或密码错误';
+                usernameInput.parentElement.style.borderColor = '#e74c3c';
+                passwordInput.parentElement.style.borderColor = '#e74c3c';
+                setTimeout(() => {
+                    usernameInput.parentElement.style.borderColor = 'transparent';
+                    passwordInput.parentElement.style.borderColor = 'transparent';
+                }, 2000);
+            }
+        });
     }
-});
+}
 
 function logout() {
     localStorage.removeItem('estimateSystemLoggedIn');
