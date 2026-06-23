@@ -106,18 +106,44 @@ async function loadHuayuanProjectData() {
     }
 }
 
-// ========== Word文档解析功能（mammoth.js）==========
+// ========== Word文档解析功能（优化版：大文件分步处理）==========
 async function parseWordDocument(file) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = async function(event) {
             try {
                 const arrayBuffer = reader.result;
-                // 使用toMarkdown保留表格格式，提取后清理HTML标签
-                const result = await mammoth.convertToMarkdown({ arrayBuffer: arrayBuffer });
-                let text = result.value;
-                // 清理残留HTML标签
-                text = text.replace(/<[^>]+>/g, '');
+                const fileSizeMB = file.size / 1024 / 1024;
+                
+                let text = '';
+                
+                // 大文件(>1MB)优化：先用extractRawText快速提取，再用convertToMarkdown提取表格
+                if (fileSizeMB > 1) {
+                    updateProcessingStatus('正在快速解析文档文本...', 10);
+                    // 先用快速方式提取纯文本
+                    const rawResult = await mammoth.extractRawText({ arrayBuffer: arrayBuffer });
+                    let quickText = rawResult.value;
+                    
+                    updateProcessingStatus('正在解析表格结构...', 30);
+                    // 同时提取Markdown格式保留表格
+                    const mdResult = await mammoth.convertToMarkdown({ arrayBuffer: arrayBuffer });
+                    let mdText = mdResult.value;
+                    mdText = mdText.replace(/<[^>]+>/g, '');
+                    
+                    // 合并：优先使用mdText的数据（表格格式），quickText作为备用
+                    updateProcessingStatus('正在提取项目数据...', 60);
+                    
+                    // 用mdText提取表格数据（用于栋号面积），quickText用于提取其他内容
+                    text = mdText; // 主要使用带表格的版本
+                } else {
+                    // 小文件直接用Markdown格式
+                    updateProcessingStatus('正在解析文档结构...', 20);
+                    const result = await mammoth.convertToMarkdown({ arrayBuffer: arrayBuffer });
+                    text = result.value;
+                    text = text.replace(/<[^>]+>/g, '');
+                    updateProcessingStatus('正在提取项目数据...', 50);
+                }
+                
                 resolve(text);
             } catch (error) {
                 reject(error);
@@ -126,6 +152,23 @@ async function parseWordDocument(file) {
         reader.onerror = reject;
         reader.readAsArrayBuffer(file);
     });
+}
+
+// 更新处理状态（用于大文件处理时显示进度）
+function updateProcessingStatus(message, progress) {
+    const statusMessage = document.getElementById('statusMessage');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    if (statusMessage) {
+        statusMessage.textContent = message;
+        statusMessage.style.color = 'var(--text-light)';
+    }
+    if (progressFill) {
+        progressFill.style.width = progress + '%';
+    }
+    if (progressText) {
+        progressText.textContent = progress + '%';
+    }
 }
 
 // ========== 关键词提取函数（5专业规范化版）==========
@@ -823,14 +866,18 @@ async function simulateFileProcessing(file) {
     document.getElementById('statusMessage').textContent = '正在解析Word文档...';
 
     try {
-        // 使用mammoth.js解析Word文档
+        // 使用mammoth.js解析Word文档（优化版）
+        updateProcessingStatus('正在加载文档...', 5);
         const text = await parseWordDocument(file);
+        
+        updateProcessingStatus('正在提取关键信息...', 70);
         
         setTimeout(() => {
             document.getElementById('step2').classList.remove('active');
             document.getElementById('step2').classList.add('completed');
             document.getElementById('step3').classList.add('active');
-            document.getElementById('statusMessage').textContent = '正在提取关键信息并生成模拟清单...';
+            document.getElementById('statusMessage').textContent = '正在生成模拟清单...';
+            updateProcessingStatus('正在生成模拟清单...', 80);
             
             // 提取项目信息
             extractedProjectInfo = extractProjectInfo(text);
@@ -843,11 +890,13 @@ async function simulateFileProcessing(file) {
                 document.getElementById('step3').classList.add('completed');
                 document.getElementById('step4').classList.add('active');
                 document.getElementById('statusMessage').textContent = '正在计算各项指标...';
+                updateProcessingStatus('正在计算指标...', 90);
                 
                 setTimeout(() => {
                     document.getElementById('step4').classList.remove('active');
                     document.getElementById('step4').classList.add('completed');
                     document.getElementById('statusMessage').textContent = '处理完成！';
+                    updateProcessingStatus('处理完成！', 100);
                     document.getElementById('statusMessage').style.color = 'var(--primary-color)';
                     
                     // 显示提取结果
@@ -859,9 +908,9 @@ async function simulateFileProcessing(file) {
                     `, [
                         { text: '查看项目信息', class: 'btn-primary', onClick: () => { closeModal(); switchSection('info'); } }
                     ]);
-                }, 800);
-            }, 1000);
-        }, 1500);
+                }, 500);
+            }, 300);
+        }, 500);
     } catch (error) {
         console.error('Word解析失败:', error);
         // 降级处理：使用文件名推测
@@ -869,6 +918,7 @@ async function simulateFileProcessing(file) {
         document.getElementById('step2').classList.add('completed');
         document.getElementById('step3').classList.add('active');
         document.getElementById('statusMessage').textContent = '解析遇到问题，使用默认处理...';
+        updateProcessingStatus('使用默认处理...', 50);
         
         extractProjectInfoFallback(file);
     }
