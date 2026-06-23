@@ -61,6 +61,8 @@
                     <li data-section="water"><i class="fas fa-tint"></i>给排水</li>
                     <li data-section="hvac"><i class="fas fa-wind"></i>暖通</li>
                     <li data-section="electric"><i class="fas fa-bolt"></i>电气</li>
+                    <li data-section="fire"><i class="fas fa-fire"></i>消防</li>
+                    <li data-section="weakElec"><i class="fas fa-wifi"></i>弱电</li>
                     <li data-section="summary"><i class="fas fa-chart-pie"></i>指标汇总</li>
                 </ul>
             </nav>
@@ -497,6 +499,88 @@
                 </div>
             </section>
 
+            <!-- 消防清单 -->
+            <section id="section-fire" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-fire"></i>消防工程模拟清单</h2>
+                    <div class="header-actions">
+                        <span class="indicator-tag" id="fireTotalArea">总建筑面积：-</span>
+                        <span class="indicator-tag highlight" id="fireTotalCost">估算总价：-</span>
+                        <button class="btn-primary btn-sm" onclick="exportToExcel('fire')"><i class="fas fa-file-excel"></i> 导出Excel</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="fireTable">
+                        <thead>
+                            <tr>
+                                <th>序号</th>
+                                <th>清单编码</th>
+                                <th>清单名称</th>
+                                <th>单位</th>
+                                <th>工程量</th>
+                                <th>综合单价(元)</th>
+                                <th>合价(元)</th>
+                                <th>备注</th>
+                            </tr>
+                        </thead>
+                        <tbody id="fireTableBody">
+                            <tr><td colspan="8" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="cost-summary" id="fireCostSummary" style="display:none;">
+                    <div class="summary-card">
+                        <div class="summary-label">消防单方造价</div>
+                        <div class="summary-value" id="fireCostPerSqm">- 元/㎡</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">占安装总造价比例</div>
+                        <div class="summary-value" id="fireCostRatio">- %</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 弱电清单 -->
+            <section id="section-weakElec" class="content-section">
+                <div class="section-header">
+                    <h2><i class="fas fa-wifi"></i>弱电工程模拟清单</h2>
+                    <div class="header-actions">
+                        <span class="indicator-tag" id="weakElecTotalArea">总建筑面积：-</span>
+                        <span class="indicator-tag highlight" id="weakElecTotalCost">估算总价：-</span>
+                        <button class="btn-primary btn-sm" onclick="exportToExcel('weakElec')"><i class="fas fa-file-excel"></i> 导出Excel</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="weakElecTable">
+                        <thead>
+                            <tr>
+                                <th>序号</th>
+                                <th>清单编码</th>
+                                <th>清单名称</th>
+                                <th>单位</th>
+                                <th>工程量</th>
+                                <th>综合单价(元)</th>
+                                <th>合价(元)</th>
+                                <th>备注</th>
+                            </tr>
+                        </thead>
+                        <tbody id="weakElecTableBody">
+                            <tr><td colspan="8" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="cost-summary" id="weakElecCostSummary" style="display:none;">
+                    <div class="summary-card">
+                        <div class="summary-label">弱电单方造价</div>
+                        <div class="summary-value" id="weakElecCostPerSqm">- 元/㎡</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="summary-label">占安装总造价比例</div>
+                        <div class="summary-value" id="weakElecCostRatio">- %</div>
+                    </div>
+                </div>
+            </section>
+
             <!-- 指标汇总 -->
             <section id="section-summary" class="content-section">
                 <div class="section-header">
@@ -573,12 +657,14 @@
                                     <th>给排水(元/㎡)</th>
                                     <th>暖通(元/㎡)</th>
                                     <th>电气(元/㎡)</th>
+                                    <th>消防(元/㎡)</th>
+                                    <th>弱电(元/㎡)</th>
                                     <th>小计(元/㎡)</th>
                                     <th>估算价(万元)</th>
                                 </tr>
                             </thead>
                             <tbody id="buildingSummaryBody">
-                                <tr><td colspan="7" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>
+                                <tr><td colspan="9" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>
                             </tbody>
                         </table>
                     </div>
