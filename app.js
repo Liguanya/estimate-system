@@ -2104,7 +2104,6 @@ const WATER_ITEMS = [
     { name: '喷头安装（闭式）', unit: '个', basePrice: 28, density: 0.4 }
 ];
 
-const HVAC_CODES = ['安装-暖通-风管-01', '安装-暖通-风管-02', '安装-暖通-风口-03', '安装-暖通-设备-04', '安装-暖通-空调-05', '安装-暖通-采暖-06', '安装-暖通-保温-07', '安装-暖通-防腐-08'];
 const HVAC_ITEMS = [
     { name: '镀锌钢板风管（矩形）', unit: 'm²', basePrice: 65, density: 1.2 },
     { name: '镀锌钢板风管（圆形）', unit: 'm²', basePrice: 72, density: 0.8 },
@@ -2140,7 +2139,6 @@ const HVAC_ITEMS = [
     { name: '地暖盘管', unit: 'm²', basePrice: 55, density: 0.5 }
 ];
 
-const ELECTRIC_CODES = ['安装-电气-配管-01', '安装-电气-配线-02', '安装-电气-电缆-03', '安装-电气-配电-04', '安装-电气-照明-05', '安装-电气-防雷-06', '安装-电气-应急-07', '安装-电气-弱电-08'];
 const ELECTRIC_ITEMS = [
     { name: '电气配管（PVC/KBG）', unit: 'm', basePrice: 8, density: 3.0 },
     { name: '电气配管（SC焊接钢管）', unit: 'm', basePrice: 18, density: 1.5 },
@@ -2424,7 +2422,6 @@ function generateElectricList(buildings, indicator, regionFactor, extractedDevic
 }
 
 // 消防清单生成函数
-const FIRE_CODES = ['安装-消防-喷淋-01', '安装-消防-消火栓-02', '安装-消防-报警-03', '安装-消防-气体-04', '安装-消防-灭火-05', '安装-消防-防排烟-06', '安装-消防-设备-07'];
 const FIRE_ITEMS = [
     { name: '室内消火栓管道', unit: 'm', basePrice: 22, density: 0.8 },
     { name: '室内消火栓箱安装', unit: '套', basePrice: 380, density: 0.05 },
@@ -2518,7 +2515,6 @@ function generateFireList(buildings, indicator, regionFactor, extractedDevices) 
 }
 
 // 弱电清单生成函数
-const WEAK_ELEC_CODES = ['安装-弱电-综合布线-01', '安装-弱电-网络-02', '安装-弱电-安防-03', '安装-弱电-广播-04', '安装-弱电-会议-05', '安装-弱电-信息-06', '安装-弱电-设备-07'];
 const WEAK_ELEC_ITEMS = [
     { name: '综合布线配线架', unit: '套', basePrice: 2200, density: 0.02 },
     { name: '网络交换机', unit: '台', basePrice: 3500, density: 0.02 },
