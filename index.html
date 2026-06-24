@@ -883,39 +883,54 @@ async function loadHuayuanProjectData() {
 // 策略：所有文件都提取表格数据，确保设备表完整提取
 async function parseWordDocument(file) {
     return new Promise((resolve, reject) => {
+        console.log('开始解析文件:', file.name);
+        
+        // 检查mammoth是否可用
+        if (typeof mammoth === 'undefined') {
+            console.error('mammoth 未定义！');
+            reject(new Error('mammoth.js 未加载'));
+            return;
+        }
+        console.log('mammoth 全局对象:', typeof mammoth);
+        
         const reader = new FileReader();
         let hasResolved = false;
         
         // 超时保护：30秒强制结束
         const timeout = setTimeout(() => {
             if (!hasResolved) {
-                console.warn('Word解析超时，尝试快速模式...');
+                console.warn('Word解析超时');
                 hasResolved = true;
-                resolve('[解析超时]\n');
+                resolve('[解析超时]
+');
             }
         }, 30000);
         
         reader.onload = async function(event) {
             try {
+                console.log('文件读取完成，开始解析...');
                 const arrayBuffer = reader.result;
                 let combinedText = '';
                 
-                // 方案1：纯文本提取（最快）
-                updateProcessingStatus('正在快速解析文档...', 20);
+                // 方案1：纯文本提取
+                updateProcessingStatus('正在解析文档内容...', 30);
                 try {
+                    console.log('调用 mammoth.extractRawText...');
                     const rawResult = await Promise.race([
                         mammoth.extractRawText({ arrayBuffer: arrayBuffer }),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('extractRawText超时')), 15000))
                     ]);
                     combinedText = rawResult.value;
+                    console.log('纯文本提取成功，长度:', combinedText.length);
                 } catch (e) {
-                    console.warn('纯文本提取失败:', e);
+                    console.warn('纯文本提取失败:', e.message);
                     combinedText = '';
                 }
                 
-                // 方案2：Markdown表格提取（补充设备表）
-                updateProcessingStatus('正在提取设备材料表...', 50);
+                // 方案2：Markdown表格提取
+                updateProcessingStatus('正在提取表格数据...', 60);
                 try {
+                    console.log('调用 mammoth.convertToMarkdown...');
                     const mdResult = await Promise.race([
                         mammoth.convertToMarkdown({ arrayBuffer: arrayBuffer }),
                         new Promise((_, reject) => setTimeout(() => reject(new Error('convertToMarkdown超时')), 20000))
@@ -923,18 +938,20 @@ async function parseWordDocument(file) {
                     const mdText = mdResult.value.replace(/<[^>]+>/g, '');
                     if (mdText && mdText.trim()) {
                         combinedText += '\n\n=== 主要设备材料表 ===\n' + mdText;
+                        console.log('Markdown提取成功');
                     }
                 } catch (e) {
-                    console.warn('Markdown提取失败（不影响整体）:', e);
+                    console.warn('Markdown提取失败:', e.message);
                 }
                 
                 if (!hasResolved) {
                     hasResolved = true;
                     clearTimeout(timeout);
-                    updateProcessingStatus('正在提取项目数据...', 85);
+                    console.log('解析完成，最终文本长度:', combinedText.length);
                     resolve(combinedText || '[解析内容为空]');
                 }
             } catch (error) {
+                console.error('解析过程出错:', error);
                 if (!hasResolved) {
                     hasResolved = true;
                     clearTimeout(timeout);
@@ -944,6 +961,7 @@ async function parseWordDocument(file) {
         };
         
         reader.onerror = function(error) {
+            console.error('文件读取失败:', error);
             if (!hasResolved) {
                 hasResolved = true;
                 clearTimeout(timeout);
