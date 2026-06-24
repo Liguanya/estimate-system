@@ -988,6 +988,131 @@ function updateProcessingStatus(message, progress) {
         progressText.textContent = progress + '%';
     }
 }
+// ========== 文件上传处理函数 ==========
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) handleFileUpload(file);
+}
+
+async function handleFileUpload(file) {
+    const allowedTypes = [
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword',
+        'application/pdf'
+    ];
+    
+    // 允许.docx格式
+    const isDocx = file.name.match(/\.docx$/i);
+    
+    if (!allowedTypes.includes(file.type) && !isDocx && !file.name.match(/\.(docx?|pdf)$/i)) {
+        showModal('格式错误', '仅支持 .docx .doc .pdf 格式文件', [
+            { text: '确定', class: 'btn-primary', onClick: closeModal }
+        ]);
+        return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+        showModal('文件过大', '文件大小不能超过 50MB', [
+            { text: '确定', class: 'btn-primary', onClick: closeModal }
+        ]);
+        return;
+    }
+
+    const uploadStatus = document.getElementById('uploadStatus');
+    const processSteps = document.getElementById('processSteps');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const statusMessage = document.getElementById('statusMessage');
+
+    uploadStatus.style.display = 'block';
+    processSteps.style.display = 'flex';
+    fileName.textContent = file.name;
+    fileSize.textContent = (file.size / 1024 / 1024).toFixed(2) + ' MB';
+    statusMessage.textContent = '正在上传...';
+    statusMessage.style.color = 'var(--text-light)';
+
+    // 模拟上传进度
+    let progress = 0;
+    const uploadInterval = setInterval(() => {
+        progress += Math.random() * 15;
+        if (progress >= 100) {
+            progress = 100;
+            clearInterval(uploadInterval);
+            progressFill.style.width = '100%';
+            progressText.textContent = '100%';
+            statusMessage.textContent = '上传完成！';
+            document.getElementById('step1').classList.add('completed');
+            document.getElementById('step1').classList.remove('active');
+            simulateFileProcessing(file);
+        } else {
+            progressFill.style.width = progress + '%';
+            progressText.textContent = Math.round(progress) + '%';
+        }
+    }, 200);
+}
+
+async function simulateFileProcessing(file) {
+    document.getElementById('step2').classList.add('active');
+    document.getElementById('statusMessage').textContent = '正在解析Word文档...';
+
+    try {
+        // 使用mammoth.js解析Word文档
+        updateProcessingStatus('正在加载文档...', 5);
+        const text = await parseWordDocument(file);
+        
+        updateProcessingStatus('正在提取关键信息...', 70);
+        
+        setTimeout(() => {
+            document.getElementById('step2').classList.remove('active');
+            document.getElementById('step2').classList.add('completed');
+            document.getElementById('step3').classList.add('active');
+            document.getElementById('statusMessage').textContent = '正在匹配机电指标...';
+            updateProcessingStatus('正在匹配指标...', 80);
+            
+            // 提取项目信息
+            extractedProjectInfo = extractProjectInfo(text);
+            
+            // 自动填表
+            autoFillForm(extractedProjectInfo);
+            
+            setTimeout(() => {
+                document.getElementById('step3').classList.remove('active');
+                document.getElementById('step3').classList.add('completed');
+                document.getElementById('step4').classList.add('active');
+                document.getElementById('statusMessage').textContent = '解析完成！';
+                updateProcessingStatus('解析完成！', 100);
+                document.getElementById('statusMessage').style.color = 'var(--primary-color)';
+                
+                // 显示提取结果
+                showExtractionResults(extractedProjectInfo);
+                showModal('Word文档解析完成', `
+                    <p>成功解析文件，共提取到以下信息：</p>
+                    <ul style="margin:15px 0;line-height:1.8;">
+                        <li>项目名称：${extractedProjectInfo.name || '未识别'}</li>
+                        <li>总建筑面积：${extractedProjectInfo.totalArea ? extractedProjectInfo.totalArea.toLocaleString() + ' ㎡' : '未识别'}</li>
+                        <li>栋号数量：${extractedProjectInfo.buildings ? extractedProjectInfo.buildings.length : 0} 个</li>
+                    </ul>
+                    <p style="margin-top:15px;">请前往「项目信息」查看提取结果，或直接点击「生成估算概算」</p>
+                `, [
+                    { text: '查看项目信息', class: 'btn-primary', onClick: () => { closeModal(); switchSection('info'); } }
+                ]);
+            }, 500);
+        }, 300);
+    } catch (error) {
+        console.error('Word解析失败:', error);
+        // 降级处理：使用文件名推测
+        document.getElementById('step2').classList.remove('active');
+        document.getElementById('step2').classList.add('completed');
+        document.getElementById('step3').classList.add('active');
+        document.getElementById('statusMessage').textContent = '解析遇到问题，使用默认处理...';
+        updateProcessingStatus('使用默认处理...', 50);
+        
+        extractProjectInfoFallback(file);
+    }
+}
+
 // ========== 关键词提取函数（5专业规范化版）==========
 function extractProjectInfo(text) {
     const info = {
