@@ -24,12 +24,15 @@ document.addEventListener('DOMContentLoaded', function() {
     currentUserSpan = document.getElementById('currentUser');
     navList = document.getElementById('navList');
     
-    // 初始化功能
-    initLoginForm();
-    checkLoginStatus();
+    // 初始化功能（已移除登录系统）
     initNavigation();
     initDragDrop();
     loadHuayuanProjectData();
+    
+    // 直接显示主页面
+    document.getElementById("loginPage").style.display = "none";
+    document.getElementById("mainPage").style.display = "flex";
+    console.log("已跳过登录，直接进入系统");
     
     // 延迟500ms再次检查登录状态，确保初始化完成
     setTimeout(function() {
@@ -43,15 +46,9 @@ document.addEventListener('DOMContentLoaded', function() {
     }, 500);
 });
 
+// 登录已禁用，直接显示主页面
 function checkLoginStatus() {
-    const isLoggedIn = localStorage.getItem('estimateSystemLoggedIn');
-    const userData = localStorage.getItem('estimateSystemUser');
-    console.log('检查登录状态:', isLoggedIn, userData ? '有用户数据' : '无用户数据');
-    if (isLoggedIn === 'true' && userData) {
-        showMainPage(JSON.parse(userData));
-    } else {
-        showLoginPage();
-    }
+    showMainPage({ displayName: '访客' });
 }
 
 function showLoginPage() {
