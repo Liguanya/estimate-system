@@ -706,7 +706,3045 @@
 
     <!-- 引入 mammoth.js 用于解析 Word 文档 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
-    <script src="app.js"></script>
+    <script>
+// ========== 全局变量 ==========
+let extractedProjectInfo = null;
+let huayuanProjectData = null;
+let huayuanBudgetData = null;
+
+// ========== 登录相关 ==========
+const users = [
+    { username: 'admin', password: '123456', displayName: '管理员' },
+    { username: 'user01', password: '123456', displayName: '张三' },
+    { username: 'user02', password: '123456', displayName: '李四' }
+];
+
+// DOM元素 - 在DOMContentLoaded后安全获取
+let loginPage, mainPage, loginForm, usernameInput, passwordInput, errorMessage, currentUserSpan, navList;
+
+document.addEventListener('DOMContentLoaded', function() {
+    // 安全获取DOM元素
+    loginPage = document.getElementById('loginPage');
+    mainPage = document.getElementById('mainPage');
+    loginForm = document.getElementById('loginForm');
+    usernameInput = document.getElementById('username');
+    passwordInput = document.getElementById('password');
+    errorMessage = document.getElementById('errorMessage');
+    currentUserSpan = document.getElementById('currentUser');
+    navList = document.getElementById('navList');
+    
+    // 初始化功能
+    initLoginForm();
+    checkLoginStatus();
+    initNavigation();
+    initDragDrop();
+    loadHuayuanProjectData();
+    
+    // 延迟500ms再次检查登录状态，确保初始化完成
+    setTimeout(function() {
+        if (!loginPage || !mainPage) {
+            console.warn('DOM元素可能未加载完成，重新获取...');
+            loginPage = document.getElementById('loginPage');
+            mainPage = document.getElementById('mainPage');
+            initLoginForm();
+            checkLoginStatus();
+        }
+    }, 500);
+});
+
+function checkLoginStatus() {
+    const isLoggedIn = localStorage.getItem('estimateSystemLoggedIn');
+    const userData = localStorage.getItem('estimateSystemUser');
+    console.log('检查登录状态:', isLoggedIn, userData ? '有用户数据' : '无用户数据');
+    if (isLoggedIn === 'true' && userData) {
+        showMainPage(JSON.parse(userData));
+    } else {
+        showLoginPage();
+    }
+}
+
+function showLoginPage() {
+    const lp = document.getElementById('loginPage');
+    const mp = document.getElementById('mainPage');
+    if (lp) lp.style.display = 'flex';
+    if (mp) mp.style.display = 'none';
+}
+
+function showMainPage(user) {
+    const lp = document.getElementById('loginPage');
+    const mp = document.getElementById('mainPage');
+    const userSpan = document.getElementById('currentUser');
+    if (lp) lp.style.display = 'none';
+    if (mp) mp.style.display = 'flex';
+    if (userSpan) userSpan.textContent = user.displayName;
+    console.log('登录成功:', user.displayName);
+}
+
+// 登录表单提交
+function initLoginForm() {
+    const form = document.getElementById('loginForm');
+    const userInput = document.getElementById('username');
+    const pwdInput = document.getElementById('password');
+    const errMsg = document.getElementById('errorMessage');
+    
+    if (form) {
+        // 移除旧的事件监听器（防止重复绑定）
+        const newForm = form.cloneNode(true);
+        form.parentNode.replaceChild(newForm, form);
+        
+        newForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const username = userInput ? userInput.value.trim() : '';
+            const password = pwdInput ? pwdInput.value.trim() : '';
+            const user = users.find(u => u.username === username && u.password === password);
+            if (user) {
+                localStorage.setItem('estimateSystemLoggedIn', 'true');
+                localStorage.setItem('estimateSystemUser', JSON.stringify(user));
+                showMainPage(user);
+            } else {
+                if (errMsg) errMsg.textContent = '用户名或密码错误';
+                if (userInput) userInput.parentElement.style.borderColor = '#e74c3c';
+                if (pwdInput) pwdInput.parentElement.style.borderColor = '#e74c3c';
+                setTimeout(() => {
+                    if (userInput) userInput.parentElement.style.borderColor = 'transparent';
+                    if (pwdInput) pwdInput.parentElement.style.borderColor = 'transparent';
+                }, 2000);
+            }
+        });
+        console.log('登录表单事件绑定成功');
+    } else {
+        console.error('未找到登录表单元素');
+    }
+}
+
+function logout() {
+    localStorage.removeItem('estimateSystemLoggedIn');
+    localStorage.removeItem('estimateSystemUser');
+    showLoginPage();
+}
+
+// ========== 导航相关 ==========
+function initNavigation() {
+    const navItems = navList.querySelectorAll('li');
+    navItems.forEach(item => {
+        item.addEventListener('click', function() {
+            const section = this.dataset.section;
+            switchSection(section);
+            navItems.forEach(n => n.classList.remove('active'));
+            this.classList.add('active');
+        });
+    });
+}
+
+function switchSection(sectionId) {
+    const sections = document.querySelectorAll('.content-section');
+    sections.forEach(s => s.classList.remove('active'));
+    const target = document.getElementById('section-' + sectionId);
+    if (target) target.classList.add('active');
+}
+
+// ========== 加载华苑项目示例数据 ==========
+async function loadHuayuanProjectData() {
+    try {
+        // 尝试加载本地JSON文件
+        const response = await fetch('huayuan_project_data.json');
+        if (response.ok) {
+            huayuanProjectData = await response.json();
+        }
+    } catch (e) {
+        console.log('本地加载失败，将使用内置数据');
+    }
+}
+
+// ========== Word文档解析功能（增强版：超时保护+双重提取）==========
+// 策略：所有文件都提取表格数据，确保设备表完整提取
+async function parseWordDocument(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        let hasResolved = false;
+        
+        // 超时保护：30秒强制结束
+        const timeout = setTimeout(() => {
+            if (!hasResolved) {
+                console.warn('Word解析超时，尝试快速模式...');
+                hasResolved = true;
+                resolve('[解析超时]\n');
+            }
+        }, 30000);
+        
+        reader.onload = async function(event) {
+            try {
+                const arrayBuffer = reader.result;
+                let combinedText = '';
+                
+                // 方案1：纯文本提取（最快）
+                updateProcessingStatus('正在快速解析文档...', 20);
+                try {
+                    const rawResult = await Promise.race([
+                        mammoth.extractRawText({ arrayBuffer: arrayBuffer }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('extractRawText超时')), 15000))
+                    ]);
+                    combinedText = rawResult.value;
+                } catch (e) {
+                    console.warn('纯文本提取失败:', e);
+                    combinedText = '';
+                }
+                
+                // 方案2：Markdown表格提取（补充设备表）
+                updateProcessingStatus('正在提取设备材料表...', 50);
+                try {
+                    const mdResult = await Promise.race([
+                        mammoth.convertToMarkdown({ arrayBuffer: arrayBuffer }),
+                        new Promise((_, reject) => setTimeout(() => reject(new Error('convertToMarkdown超时')), 20000))
+                    ]);
+                    const mdText = mdResult.value.replace(/<[^>]+>/g, '');
+                    if (mdText && mdText.trim()) {
+                        combinedText += '\n\n=== 主要设备材料表 ===\n' + mdText;
+                    }
+                } catch (e) {
+                    console.warn('Markdown提取失败（不影响整体）:', e);
+                }
+                
+                if (!hasResolved) {
+                    hasResolved = true;
+                    clearTimeout(timeout);
+                    updateProcessingStatus('正在提取项目数据...', 85);
+                    resolve(combinedText || '[解析内容为空]');
+                }
+            } catch (error) {
+                if (!hasResolved) {
+                    hasResolved = true;
+                    clearTimeout(timeout);
+                    reject(error);
+                }
+            }
+        };
+        
+        reader.onerror = function(error) {
+            if (!hasResolved) {
+                hasResolved = true;
+                clearTimeout(timeout);
+                reject(error);
+            }
+        };
+        
+        reader.readAsArrayBuffer(file);
+    });
+}
+
+// 更新处理状态
+function updateProcessingStatus(message, progress) {
+    const statusMessage = document.getElementById('statusMessage');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    if (statusMessage) {
+        statusMessage.textContent = message;
+        statusMessage.style.color = 'var(--text-light)';
+    }
+    if (progressFill) {
+        progressFill.style.width = progress + '%';
+    }
+    if (progressText) {
+        progressText.textContent = progress + '%';
+    }
+}
+// ========== 关键词提取函数（5专业规范化版）==========
+function extractProjectInfo(text) {
+    const info = {
+        name: '',
+        totalArea: 0,
+        aboveArea: 0,
+        belowArea: 0,
+        classes: 0,
+        buildings: [],
+        bizType: '学校类',
+        mep: {
+            // 给排水专业
+            给排水: { 系统: [], 管材: [], 设备: [] },
+            // 暖通专业
+            暖通: { 系统: [], 管材: [], 设备: [] },
+            // 电气专业
+            电气: { 系统: [], 管材: [], 设备: [] },
+            // 弱电专业
+            弱电: { 系统: [], 管材: [], 设备: [] },
+            // 消防专业
+            消防: { 系统: [], 管材: [], 设备: [] }
+        },
+        warnings: []
+    };
+
+    text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+
+    // ====== A. 总建筑面积 - 多种正则尝试 ======
+    const totalAreaPatterns = [
+        /\|建筑面积\|建筑面积\|建筑面积\|m2\|(\d{5})\|/,
+        /\|建筑面积\|[^|]*\|[^|]*\|[^|]*m2[^|]*\|(\d{5,6})\|/,
+        /建筑面积[^\d]*?(\d{5,6})/,
+        /总建筑面积[^\d]*?(\d{5,6})/
+    ];
+    for (const pattern of totalAreaPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            const area = parseInt(match[1]);
+            if (area >= 10000 && area <= 200000) {
+                info.totalArea = area;
+                break;
+            }
+        }
+    }
+    
+    // ====== B. 地上地下面积 ======
+    const aboveMatch = text.match(/\|地上建筑面积\|[^|]*\|[^|]*\|[^|]*m2[^|]*\|(\d{4,5})\|/);
+    if (aboveMatch) info.aboveArea = parseInt(aboveMatch[1]);
+    
+    const belowMatch = text.match(/\|地下建筑面积\|[^|]*\|[^|]*\|[^|]*m2[^|]*\|(\d{4,5})\|/);
+    if (belowMatch) info.belowArea = parseInt(belowMatch[1]);
+    
+    // ====== C. 栋号提取 ======
+    // 综合教学楼
+    const jzxPatterns = [
+        /\|其中\|综合教学楼[^\|]*\|[^\|]*\|[^\|]*m2[^\|]*\|(\d{5})\|/,
+        /综合教学楼[^\|]*\|[^\|]*\|[^\|]*m2[^\|]*\|(\d{5})\|/,
+        /教学楼[^\d]*?(\d{5})/
+    ];
+    for (const pattern of jzxPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            const area = parseInt(match[1]);
+            if (area >= 5000 && area <= 50000) {
+                info.buildings.push({ name: '综合教学楼', area, floors: '地上5层局部4层' });
+                break;
+            }
+        }
+    }
+    
+    // 地下车库
+    const ugPatterns = [
+        /\|地下建筑面积\|[^|]*\|[^|]*\|[^|]*m2[^|]*\|(\d{4,5})\|/,
+        /地下车库[^\|]*\|[^\|]*\|[^\|]*m2[^\|]*\|(\d{4,5})\|/
+    ];
+    for (const pattern of ugPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            const area = parseInt(match[1]);
+            if (area >= 1000 && area <= 50000) {
+                const exists = info.buildings.some(b => b.name.includes('地下'));
+                if (!exists) {
+                    info.buildings.push({ name: '地下车库及设备用房', area, floors: '地下1层' });
+                }
+                break;
+            }
+        }
+    }
+    
+    // ====== D. 项目名称 ======
+    const nameMatch = text.match(/天津市[^\n，,。]{0,40}(?:完全中学|中学)[^\n，,。]{0,30}/);
+    if (nameMatch) {
+        info.name = nameMatch[0].replace(/\s+/g, '').substring(0, 50);
+    }
+    
+    // ====== E. 教学班数 ======
+    const classMatch = text.match(/初中部[^\d]{0,20}(\d{2})[^\d]{0,5}班|共(\d{2})[^\d]{0,5}班(?:教学班)?/);
+    if (classMatch) {
+        info.classes = parseInt(classMatch[1] || classMatch[2]);
+    }
+    
+    // ====== F. 机电5专业系统化提取 ======
+    
+    // 【给排水专业】
+    const jpsSys = [], jpsMat = [], jpsEq = [];
+    
+    // 给水系统
+    if (/市政供水|市政直供/.test(text)) jpsSys.push('市政直供');
+    if (/变频供水|变频调速泵/.test(text)) jpsSys.push('变频供水');
+    if (/无负压/.test(text)) jpsSys.push('无负压供水');
+    if (/太阳能热水|太阳能供水/.test(text)) jpsSys.push('太阳能热水系统');
+    if (/空气源热泵.*热水|热水.*空气源/.test(text)) jpsSys.push('空气源热泵热水');
+    if (/中水回用|中水系统/.test(text)) jpsSys.push('中水回用系统');
+    if (/雨水回收|雨水利用|海绵城市/.test(text)) jpsSys.push('雨水收集系统');
+    
+    // 消防系统
+    if (/室内消火栓|消火栓系统/.test(text)) {
+        jpsSys.push('室内消火栓系统');
+        info.消防.系统.push('室内消火栓系统');
+    }
+    if (/自动喷水|自动喷淋|喷淋系统/.test(text)) {
+        jpsSys.push('自动喷淋系统');
+        info.消防.系统.push('自动喷淋系统');
+    }
+    if (/大空间智能|智能灭火/.test(text)) {
+        jpsSys.push('大空间智能灭火系统');
+        info.消防.系统.push('大空间智能灭火系统');
+    }
+    if (/气体灭火/.test(text)) {
+        jpsSys.push('气体灭火系统');
+        info.消防.系统.push('气体灭火系统');
+    }
+    if (/灭火器/.test(text)) info.消防.系统.push('建筑灭火器配置');
+    
+    // 管材
+    if (/衬塑钢管/.test(text)) jpsMat.push('衬塑钢管');
+    if (/球墨铸铁管/.test(text)) jpsMat.push('给水球墨铸铁管');
+    if (/热镀锌|热浸锌/.test(text)) jpsMat.push('热浸锌镀锌钢管');
+    if (/HDPE|双壁波纹管/.test(text)) jpsMat.push('HDPE双壁波纹管');
+    if (/不锈钢/.test(text)) jpsMat.push('S31603不锈钢');
+    
+    // 设备
+    if (/变频.*泵|加压泵/.test(text)) jpsEq.push('变频生活加压泵组');
+    if (/消防水池|消防水箱/.test(text)) {
+        const capMatch = text.match(/(\d+)[^\d]*(?:立方|m³|m3)/);
+        if (capMatch) {
+            jpsEq.push(`消防水池${capMatch[1]}m³`);
+            info.消防.设备.push(`消防水池${capMatch[1]}m³`);
+        } else {
+            jpsEq.push('消防水池');
+            info.消防.设备.push('消防水池');
+        }
+    }
+    if (/紫外线消毒/.test(text)) jpsEq.push('紫外线消毒器');
+    
+    info.给排水.系统 = [...new Set(jpsSys)].slice(0, 6);
+    info.给排水.管材 = [...new Set(jpsMat)].slice(0, 4);
+    info.给排水.设备 = [...new Set(jpsEq)].slice(0, 4);
+    
+    // 【暖通专业】
+    const ntSys = [], ntMat = [], ntEq = [];
+    
+    // 冷热源
+    if (/地源热泵/.test(text)) ntSys.push('地源热泵');
+    if (/空气源热泵/.test(text)) ntSys.push('空气源热泵');
+    if (/冷水机组/.test(text)) ntSys.push('冷水机组');
+    if (/VRV|多联机/.test(text)) ntSys.push('VRV多联机');
+    if (/风机盘管/.test(text)) ntSys.push('风机盘管+新风');
+    if (/分体空调/.test(text)) ntSys.push('分体空调');
+    
+    // 供暖
+    if (/散热器|暖气片/.test(text)) ntSys.push('散热器供暖');
+    if (/地板辐射|地采暖|地热采暖/.test(text)) ntSys.push('地板辐射供暖');
+    if (/集中供暖|供暖系统/.test(text) && !/散热器|地板/.test(text)) ntSys.push('集中供暖系统');
+    
+    // 通风防排烟
+    if (/机械通风|机械排风/.test(text)) ntSys.push('机械通风系统');
+    if (/自然通风/.test(text)) ntSys.push('自然通风');
+    if (/正压送风|机械排烟|防排烟/.test(text)) {
+        ntSys.push('防排烟系统');
+        info.消防.系统.push('防排烟系统');
+    }
+    if (/地下车库.*排风|车库.*排烟/.test(text)) ntSys.push('车库排风排烟系统');
+    if (/换气.*次/.test(text)) ntSys.push('换气通风系统');
+    
+    // 管材保温
+    if (/无缝钢管/.test(text)) ntMat.push('无缝钢管');
+    if (/橡塑保温|保温材料/.test(text)) ntMat.push('橡塑保温');
+    if (/保温.*3cm|3cm.*保温/.test(text)) ntMat.push('3cm厚橡塑保温');
+    
+    // 设备
+    if (/热力入户|换热站/.test(text)) ntEq.push('换热机组');
+    if (/空气幕/.test(text)) ntEq.push('电热型空气幕');
+    if (/CO.*监测|浓度监测/.test(text)) ntEq.push('CO浓度监测装置');
+    
+    info.暖通.系统 = [...new Set(ntSys)].slice(0, 6);
+    info.暖通.管材 = [...new Set(ntMat)].slice(0, 3);
+    info.暖通.设备 = [...new Set(ntEq)].slice(0, 4);
+    
+    // 【电气专业】
+    const dqSys = [], dqMat = [], dqEq = [];
+    
+    // 供配电
+    if (/10kV|10KV/.test(text)) dqSys.push('10kV高压供电');
+    if (/双路电源|双重电源/.test(text)) dqSys.push('双路电源供电');
+    if (/柴油发电机|柴发/.test(text)) {
+        dqSys.push('柴油发电机备用电源');
+        dqEq.push('柴油发电机');
+    }
+    if (/TN-S|TN-S系统/.test(text)) dqSys.push('TN-S配电系统');
+    if (/树干式|放射式|混合式/.test(text)) dqSys.push('配电系统');
+    
+    // 照明
+    if (/LED.*灯|节能灯具/.test(text)) dqSys.push('LED节能照明');
+    if (/应急照明|疏散照明/.test(text)) dqSys.push('应急照明系统');
+    if (/集中控制型.*应急|智能应急/.test(text)) dqSys.push('集中控制型应急照明');
+    
+    // 变压器
+    const transMatch = text.match(/(\d+)kVA[^\d]*变压器|变压器[^\d]*(\d+)kVA/);
+    if (transMatch) {
+        const cap = transMatch[1] || transMatch[2];
+        dqEq.push(`${cap}kVA变压器`);
+        info.电气.系统.push(`变压器容量${cap}kVA`);
+    }
+    
+    // 管材
+    if (/矿物绝缘.*电缆|柔性矿物绝缘/.test(text)) dqMat.push('矿物绝缘电缆');
+    if (/耐火电缆/.test(text)) dqMat.push('耐火电缆');
+    if (/阻燃电缆|阻燃导线/.test(text)) dqMat.push('阻燃电缆/导线');
+    if (/WDZ-YJY|WDZ-BYJ/.test(text)) dqMat.push('WDZ低烟无卤电缆');
+    if (/铜芯/.test(text)) dqMat.push('铜芯电缆');
+    
+    // 防雷
+    if (/二类防雷|防雷建筑/.test(text)) dqSys.push('二类防雷建筑');
+    if (/接闪带|接闪杆|接闪网/.test(text)) dqSys.push('接闪带/杆/网防雷');
+    if (/防雷接地/.test(text)) dqSys.push('防雷接地系统');
+    
+    // EPS/UPS
+    if (/EPS.*供电|EPS电源/.test(text)) dqEq.push('EPS应急电源');
+    if (/UPS|不间断电源/.test(text)) dqEq.push('UPS不间断电源');
+    
+    info.电气.系统 = [...new Set(dqSys)].slice(0, 6);
+    info.电气.管材 = [...new Set(dqMat)].slice(0, 4);
+    info.电气.设备 = [...new Set(dqEq)].slice(0, 4);
+    
+    // 【弱电专业】
+    const rdSys = [], rdMat = [], rdEq = [];
+    
+    // 综合布线
+    if (/综合布线/.test(text)) rdSys.push('综合布线系统');
+    if (/光纤入室|全光网络/.test(text)) rdSys.push('全光网络');
+    if (/超六类|六类网线/.test(text)) rdMat.push('超六类网线');
+    if (/光纤|光缆/.test(text)) rdMat.push('光纤/光缆');
+    
+    // 网络系统
+    if (/校园内网|校园外网|设备网/.test(text)) rdSys.push('校园网络系统');
+    if (/Wi-Fi|WiFi|无线网络/.test(text)) rdSys.push('Wi-Fi 6无线覆盖');
+    if (/核心交换机|OLT/.test(text)) rdEq.push('核心交换机/OLT设备');
+    
+    // 安防系统
+    if (/视频监控/.test(text)) rdSys.push('视频监控系统');
+    if (/门禁/.test(text)) rdSys.push('门禁管理系统');
+    if (/入侵报警|周界报警|电子围栏/.test(text)) rdSys.push('入侵报警系统');
+    if (/停车场|车牌识别/.test(text)) rdSys.push('停车场管理系统');
+    if (/电子巡查|巡更/.test(text)) rdSys.push('电子巡查系统');
+    
+    // 广播
+    if (/公共广播|教学广播/.test(text)) {
+        rdSys.push('公共广播系统');
+        info.消防.系统.push('消防应急广播');
+    }
+    if (/信息发布|LED显示/.test(text)) rdSys.push('信息发布系统');
+    if (/能耗监测/.test(text)) rdSys.push('能耗监测系统');
+    if (/多媒体教学|智慧教学/.test(text)) rdSys.push('多媒体教学系统');
+    if (/一卡通/.test(text)) rdSys.push('校园一卡通系统');
+    
+    info.弱电.系统 = [...new Set(rdSys)].slice(0, 8);
+    info.弱电.管材 = [...new Set(rdMat)].slice(0, 3);
+    info.弱电.设备 = [...new Set(rdEq)].slice(0, 3);
+    
+    // 【消防专业（补充）】
+    // 火灾自动报警
+    if (/火灾自动报警|集中报警/.test(text)) {
+        info.消防.系统.push('火灾自动报警系统');
+        const fireEq = [];
+        if (/感烟探测器/.test(text)) fireEq.push('感烟探测器');
+        if (/感温探测器/.test(text)) fireEq.push('感温探测器');
+        if (/手动报警|报警按钮/.test(text)) fireEq.push('手动报警按钮');
+        if (/消防电话/.test(text)) fireEq.push('消防电话系统');
+        if (/声光警报|声光报警/.test(text)) fireEq.push('声光警报器');
+        if (fireEq.length > 0) info.消防.设备.push(...fireEq.slice(0, 3));
+    }
+    if (/消防联动|联动控制/.test(text)) info.消防.系统.push('消防联动控制系统');
+    if (/电气火灾监控/.test(text)) info.消防.系统.push('电气火灾监控系统');
+    if (/防火门监控/.test(text)) info.消防.系统.push('防火门监控系统');
+    if (/消防电源监控/.test(text)) info.消防.系统.push('消防电源监控系统');
+    
+    // 去重
+    info.消防.系统 = [...new Set(info.消防.系统)].slice(0, 8);
+    info.消防.设备 = [...new Set(info.消防.设备)].slice(0, 5);
+    
+    // ====== G. 从Markdown表格解析主要设备材料表 ======
+    const deviceTableEquipments = parseDeviceTables(text);
+    if (deviceTableEquipments) {
+        // 合并提取到的设备（去重）
+        if (deviceTableEquipments.给排水 && deviceTableEquipments.给排水.length > 0) {
+            const existing = info.给排水.设备 || [];
+            info.给排水.设备 = [...new Set([...existing, ...deviceTableEquipments.给排水])].slice(0, 10);
+        }
+        if (deviceTableEquipments.暖通 && deviceTableEquipments.暖通.length > 0) {
+            const existing = info.暖通.设备 || [];
+            info.暖通.设备 = [...new Set([...existing, ...deviceTableEquipments.暖通])].slice(0, 8);
+        }
+        if (deviceTableEquipments.电气 && deviceTableEquipments.电气.length > 0) {
+            const existing = info.电气.设备 || [];
+            info.电气.设备 = [...new Set([...existing, ...deviceTableEquipments.电气])].slice(0, 12);
+        }
+        if (deviceTableEquipments.弱电 && deviceTableEquipments.弱电.length > 0) {
+            const existing = info.弱电.设备 || [];
+            info.弱电.设备 = [...new Set([...existing, ...deviceTableEquipments.弱电])].slice(0, 8);
+        }
+        if (deviceTableEquipments.消防 && deviceTableEquipments.消防.length > 0) {
+            const existing = info.消防.设备 || [];
+            info.消防.设备 = [...new Set([...existing, ...deviceTableEquipments.消防])].slice(0, 10);
+        }
+    }
+    
+    // 业态
+    info.bizType = '学校类';
+    
+    // 警告
+    if (info.totalArea === 0) info.warnings.push('总建筑面积');
+    if (info.buildings.length === 0) info.warnings.push('栋号信息');
+    
+    return info;
+}
+
+// ========== 从Markdown表格解析主要设备材料表 ======
+function parseDeviceTables(text) {
+    const result = {
+        给排水: [],
+        暖通: [],
+        电气: [],
+        弱电: [],
+        消防: []
+    };
+    
+    if (!text || !text.includes('===')) return null;
+    
+    // ====== 1. 给排水设备（给水泵、水箱、消毒设备等）======
+    const waterEquipPatterns = [
+        // 生活加压泵
+        /(?:生活)?(?:变频)?(?:加压)?泵[^\d]*?Q\s*=\s*([\d.]+)[^/]*\/[hs][^\d]*?H\s*=\s*([\d.]+)[^m]*?m[^\d]*?N\s*=\s*([\d.]+)[^kW]*?[kW]?/gi,
+        // 消防泵
+        /(?:消火栓|喷淋)(?:加压)?泵[^\d]*?Q\s*=\s*([\d.]+)[^/]*\/[hs][^\d]*?H\s*=\s*([\d.]+)[^m]*?m[^\d]*?N\s*=\s*([\d.]+)[^kW]*?[kW]?/gi,
+        // 水箱
+        /(?:消防|生活|中水)?(?:水箱|水池)(?:尺寸)?\s*[长×x宽×高]?\s*([\d,]+)\s*[×x]\s*([\d,]+)\s*[×x]\s*([\d,]+)/gi,
+        // 紫外线消毒器
+        /(?:紫外线|消毒器)(?:设备)?/gi,
+        // 雨水处理
+        /(?:雨水|中水)(?:处理|回收|利用)(?:设备|装置)?/gi
+    ];
+    
+    // 提取给水泵
+    const pumpMatch = text.matchAll(/(?:生活|变频|加压)?泵[^\d]*?Q[=\s]*([\d.]+)[^/]*?\/[hs][^\d]*?H[=\s]*([\d.]+)[^m]*?m[^\d]*?N[=\s]*([\d.]+)[^kW]*?kW/gi);
+    for (const m of pumpMatch) {
+        const flow = m[1], head = m[2], power = m[3];
+        if (parseFloat(flow) > 0 && parseFloat(head) > 0) {
+            result.给排水.push(`生活加压泵Q=${flow}L/s H=${head}m N=${power}kW`);
+        }
+    }
+    
+    // 提取消防泵
+    const firePumpMatch = text.matchAll(/(?:消火栓|喷淋)(?:加压)?泵[^\d]*?Q[=\s]*([\d.]+)[^/]*?\/[hs][^\d]*?H[=\s]*([\d.]+)[^m]*?m[^\d]*?N[=\s]*([\d.]+)[^kW]*?kW/gi);
+    for (const m of firePumpMatch) {
+        const flow = m[1], head = m[2], power = m[3];
+        if (parseFloat(flow) > 0 && parseFloat(head) > 0) {
+            const type = m[0].includes('消火栓') ? '消火栓加压泵' : '喷淋加压泵';
+            result.消防.push(`${type}Q=${flow}L/s H=${head}m N=${power}kW`);
+        }
+    }
+    
+    // 提取水箱
+    const tankMatch = text.matchAll(/(?:消防|生活|中水)?(?:水箱|水池)[^\d]*?([\d,]+)[×x]\s*([\d,]+)[×x]\s*([\d,]+)/gi);
+    for (const m of tankMatch) {
+        const dims = `${m[1]}×${m[2]}×${m[3]}`;
+        if (m[0].includes('消防')) {
+            result.消防.push(`消防水池${dims}`);
+        } else if (m[0].includes('中水')) {
+            result.给排水.push(`中水水箱${dims}`);
+        } else {
+            result.给排水.push(`给水水箱${dims}`);
+        }
+    }
+    
+    // ====== 2. 电气设备（变压器、高低压柜、直流屏等）======
+    const transformerMatch = text.matchAll(/SCB?[\d]+\s*(?:型)?\s*变压器[^\d]*?(\d+)\s*(?:kVA|千伏安)/gi);
+    for (const m of transformerMatch) {
+        const capacity = m[1];
+        result.电气.push(`SCB${m[0].match(/SCB(\d+)/)?.[1] || '14'}变压器${capacity}kVA`);
+    }
+    
+    const transformerSimple = text.matchAll(/(?:变压器|干式变压器)[^\d]*?(\d{3,4})\s*(?:kVA|千伏安)/gi);
+    for (const m of transformerSimple) {
+        result.电气.push(`干式变压器${m[1]}kVA`);
+    }
+    
+    // 高压开关柜
+    const hvMatch = text.match(/(?:KYN|高压)(?:开关)?柜[^\d]*?(\d+)\s*(?:面|台|个)/i);
+    if (hvMatch) {
+        result.电气.push(`KYN28A-12高压开关柜${hvMatch[1]}面`);
+    }
+    
+    // 低压开关柜
+    const lvMatch = text.match(/(?:MNS|低压)(?:开关)?柜[^\d]*?(\d+)\s*(?:面|台|个)/i);
+    if (lvMatch) {
+        result.电气.push(`MNS低压开关柜${lvMatch[1]}面`);
+    }
+    
+    // 直流屏
+    const dcMatch = text.match(/(?:直流屏|直流电源)[^\d]*?(\d+)\s*(?:面|台|套)/i);
+    if (dcMatch) {
+        result.电气.push(`直流屏${dcMatch[1]}面`);
+    }
+    
+    // 综合监控平台
+    if (/综合监控平台|能源管理系统|智能配电/.test(text)) {
+        result.电气.push('综合监控平台1套');
+    }
+    
+    // EPS/UPS
+    if (/EPS应急电源|EPS/.test(text)) {
+        const epsMatch = text.match(/EPS[^\d]*?(\d+)\s*(?:kVA|kW|千伏安|千瓦)/i);
+        result.电气.push(epsMatch ? `EPS应急电源${epsMatch[1]}kVA` : 'EPS应急电源');
+    }
+    
+    if (/UPS|不间断电源/.test(text)) {
+        const upsMatch = text.match(/UPS[^\d]*?(\d+)\s*(?:kVA|kW|千伏安|千瓦)/i);
+        result.电气.push(upsMatch ? `UPS不间断电源${upsMatch[1]}kVA` : 'UPS不间断电源');
+    }
+    
+    // 柴油发电机
+    if (/柴油发电机|柴发/.test(text)) {
+        const genMatch = text.match(/(?:柴油)?发电机[^\d]*?(\d+)\s*(?:kVA|kW|千瓦|千伏安)/i);
+        result.电气.push(genMatch ? `柴油发电机${genMatch[1]}kW` : '柴油发电机');
+    }
+    
+    // ====== 3. 弱电设备（火灾报警、监控、门禁等）======
+    // 火灾报警控制器
+    const fireControllerMatch = text.match(/(?:集中|火灾自动)(?:报警|报警控制)(?:器|系统|柜)[^\d]*?(\d+)\s*(?:套|台|个)/i);
+    if (fireControllerMatch) {
+        result.消防.push(`集中报警控制器${fireControllerMatch[1]}套`);
+    }
+    
+    // 联动控制柜
+    if (/联动控制柜|消防联动控制器/.test(text)) {
+        const linkageMatch = text.match(/联动(?:控制柜|控制器)[^\d]*?(\d+)\s*(?:套|台|个)/i);
+        result.消防.push(linkageMatch ? `联动控制柜${linkageMatch[1]}套` : '联动控制柜');
+    }
+    
+    // 探测器
+    if (/感烟探测器/.test(text)) {
+        const smokeMatch = text.match(/感烟探测器[^\d]*?(\d+)\s*(?:个|只|套)/i);
+        result.消防.push(smokeMatch ? `感烟探测器${smokeMatch[1]}个` : '感烟探测器');
+    }
+    
+    if (/感温探测器/.test(text)) {
+        const heatMatch = text.match(/感温探测器[^\d]*?(\d+)\s*(?:个|只|套)/i);
+        result.消防.push(heatMatch ? `感温探测器${heatMatch[1]}个` : '感温探测器');
+    }
+    
+    // 手动报警按钮
+    if (/手动报警|报警按钮/.test(text)) {
+        const manualMatch = text.match(/(?:手动)?报警按钮[^\d]*?(\d+)\s*(?:个|只|套)/i);
+        result.消防.push(manualMatch ? `手动报警按钮${manualMatch[1]}个` : '手动报警按钮');
+    }
+    
+    // 声光报警
+    if (/声光报警|声光警报/.test(text)) {
+        result.消防.push('声光警报器');
+    }
+    
+    // 应急照明主机
+    if (/应急照明.*主机|集中控制型.*应急/.test(text)) {
+        result.消防.push('集中控制型应急照明主机');
+    }
+    
+    // 视频监控
+    if (/监控.*摄像机|网络摄像机/.test(text)) {
+        const camMatch = text.match(/摄像机[^\d]*?(\d+)\s*(?:台|个|套)/i);
+        result.弱电.push(camMatch ? `网络摄像机${camMatch[1]}台` : '网络摄像机');
+    }
+    
+    // 门禁
+    if (/门禁/.test(text)) {
+        result.弱电.push('门禁管理系统');
+    }
+    
+    // ====== 4. 消防设备（消火栓、水炮、喷头等）======
+    // 自动射流灭火系统/水炮
+    if (/自动射流|灭火系统|消防水炮/.test(text)) {
+        const waterCannon = text.match(/(?:喷射型)?(?:自动)?射流(?:灭火)?(?:系统|装置|水炮)[^\d]*?(\d+)\s*(?:套|台|个)?/i);
+        result.消防.push(waterCannon ? `喷射型自动射流灭火系统${waterCannon[1]}套` : '喷射型自动射流灭火系统');
+    }
+    
+    // 消火栓
+    if (/室内消火栓|消火栓箱/.test(text)) {
+        result.消防.push('室内消火栓');
+    }
+    
+    // 喷淋头
+    if (/喷头|闭式喷头/.test(text)) {
+        const nozzleMatch = text.match(/喷头[^\d]*?(\d+)\s*(?:个|只|套)/i);
+        result.消防.push(nozzleMatch ? `闭式喷头${nozzleMatch[1]}个` : '闭式喷头');
+    }
+    
+    // 灭火器
+    if (/灭火器/.test(text)) {
+        result.消防.push('建筑灭火器');
+    }
+    
+    // ====== 5. 暖通设备（风机、空调等）======
+    if (/风机.*盘管|风机盘管/.test(text)) {
+        const fcuMatch = text.match(/风机盘管[^\d]*?(\d+)\s*(?:台|个|套)/i);
+        result.暖通.push(fcuMatch ? `风机盘管${fcuMatch[1]}台` : '风机盘管');
+    }
+    
+    if (/新风机组|空气处理机组|AHU/.test(text)) {
+        result.暖通.push('新风机组/空气处理机组');
+    }
+    
+    if (/送风机|排烟风机|正压送风机/.test(text)) {
+        result.暖通.push('送/排烟风机');
+    }
+    
+    return result;
+}
+
+
+
+
+
+// ========== 自动填表功能（增强版）==========
+function autoFillForm(info) {
+    // 项目名称
+    if (info.name) {
+        document.getElementById('projectName').value = info.name;
+    }
+
+    // 总建筑面积 - 显示在栋号信息区
+    if (info.totalArea > 0) {
+        // 将总面积填入备注或显示
+        console.log('提取到总建筑面积:', info.totalArea);
+    }
+
+    // 教学班数（如果有识别到）
+    if (info.classes > 0) {
+        console.log('提取到教学班数:', info.classes, '班');
+    }
+
+    // 栋号信息
+    if (info.buildings && info.buildings.length > 0) {
+        const buildingList = document.getElementById('buildingList');
+        buildingList.innerHTML = '';
+
+        info.buildings.forEach((building, index) => {
+            const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+            const letter = letters[index] || (index + 1);
+            const newBuilding = document.createElement('div');
+            newBuilding.className = 'building-item';
+            newBuilding.dataset.index = index;
+            newBuilding.innerHTML = `
+                <div class="building-header">
+                    <span class="building-name">栋号 ${letter}</span>
+                    <button class="btn-danger btn-sm" onclick="removeBuilding(this)"><i class="fas fa-trash"></i></button>
+                </div>
+                <div class="info-item">
+                    <label>栋号名称</label>
+                    <input type="text" class="building-name-input" value="${building.name}" placeholder="栋号名称">
+                </div>
+                <div class="info-item">
+                    <label>建筑面积（㎡）</label>
+                    <input type="number" class="building-area-input" value="${building.area}" placeholder="建筑面积">
+                </div>
+                <div class="info-item">
+                    <label>建筑高度（m）</label>
+                    <input type="number" class="building-height-input" placeholder="建筑高度">
+                </div>
+            `;
+            buildingList.appendChild(newBuilding);
+        });
+
+        updateBuildingButtons();
+        
+        // 如果栋号面积为0或未识别，给出警告
+        const zeroAreaBuildings = info.buildings.filter(b => !b.area || b.area === 0);
+        if (zeroAreaBuildings.length > 0) {
+            info.warnings.push('部分栋号面积未识别，请手动填写');
+        }
+    } else if (info.totalArea > 0) {
+        // 如果没有识别到栋号但有总面积，创建一个默认栋号
+        const buildingList = document.getElementById('buildingList');
+        buildingList.innerHTML = '';
+        const newBuilding = document.createElement('div');
+        newBuilding.className = 'building-item';
+        newBuilding.dataset.index = 0;
+        newBuilding.innerHTML = `
+            <div class="building-header">
+                <span class="building-name">栋号 A</span>
+                <button class="btn-danger btn-sm" onclick="removeBuilding(this)"><i class="fas fa-trash"></i></button>
+            </div>
+            <div class="info-item">
+                <label>栋号名称</label>
+                <input type="text" class="building-name-input" value="主楼" placeholder="栋号名称">
+            </div>
+            <div class="info-item">
+                <label>建筑面积（㎡）</label>
+                <input type="number" class="building-area-input" value="${info.totalArea}" placeholder="建筑面积">
+            </div>
+            <div class="info-item">
+                <label>建筑高度（m）</label>
+                <input type="number" class="building-height-input" placeholder="建筑高度">
+            </div>
+        `;
+        buildingList.appendChild(newBuilding);
+        updateBuildingButtons();
+        info.warnings.push('栋号信息未完整识别，已创建默认栋号，请检查并补充');
+    }
+
+    // 业态类型 - 自动识别学校类
+    const bizSelect = document.getElementById('businessType');
+    if (info.bizType === '学校类') {
+        bizSelect.value = '中小学';
+    }
+
+    // 触发业态变化
+    onBusinessTypeChange();
+
+    // 给排水专业
+    if (info.mep?.给排水?.热水 || '') {
+        const hotWaterSelect = document.getElementById('hotWater');
+        if (/太阳能/.test(info.mep?.给排水?.热水 || '')) hotWaterSelect.value = '太阳能';
+        else if (/空气源/.test(info.mep?.给排水?.热水 || '')) hotWaterSelect.value = '空气源热泵';
+    }
+
+    if (info.mep?.给排水?.消防 || [] && info.mep?.给排水?.消防 || [].length > 0) {
+        const fireCheckboxes = document.querySelectorAll('#section-info input[value="室内消火栓"], #section-info input[value="自动喷淋"]');
+        fireCheckboxes.forEach(cb => {
+            if (info.mep?.给排水?.消防 || [].some(f => f.includes(cb.value))) {
+                cb.checked = true;
+            }
+        });
+    }
+
+    // 暖通专业
+    if (info.mep?.暖通?.冷热源 || '') {
+        const heatingSelect = document.getElementById('heatingType');
+        if (/地源热泵/.test(info.mep?.暖通?.冷热源 || '')) heatingSelect.value = '地源热泵';
+        else if (/空气源/.test(info.mep?.暖通?.冷热源 || '')) heatingSelect.value = '空气源热泵';
+    }
+
+    if (info.acSystem) {
+        const acSelect = document.getElementById('acType');
+        if (/风机盘管/.test(info.acSystem)) acSelect.value = '风机盘管+新风';
+        else if (/VRV|多联机/.test(info.acSystem)) acSelect.value = '多联机';
+    }
+
+    if (info.mep?.暖通?.防排烟 || [] && info.mep?.暖通?.防排烟 || [].length > 0) {
+        const smokeCheckboxes = document.querySelectorAll('#section-info input[value="正压送风"], #section-info input[value="机械排烟"]');
+        smokeCheckboxes.forEach(cb => {
+            if (info.mep?.暖通?.防排烟 || [].some(s => s.includes(cb.value))) {
+                cb.checked = true;
+            }
+        });
+    }
+
+    // 电气专业
+    if (info.mep?.电气?.变压器 || '') {
+        document.getElementById('transformerCapacity').value = info.mep?.电气?.变压器 || '';
+    }
+
+    if (info.mep?.电气?.供电 || '') {
+        const powerCheckboxes = document.querySelectorAll('#section-info input[value="柴发"], #section-info input[value="双电源切换"]');
+        powerCheckboxes.forEach(cb => {
+            if (info.mep?.电气?.供电 || ''.includes('发电机') || info.mep?.电气?.供电 || ''.includes('双路')) {
+                cb.checked = true;
+            }
+        });
+    }
+
+    return info;
+}
+
+// ========== 显示提取结果（5专业规范化版）==========
+function showExtractionResults(info) {
+    // 构建栋号信息
+    let buildingHtml = '';
+    if (info.buildings && info.buildings.length > 0) {
+        info.buildings.forEach((b, i) => {
+            buildingHtml += `<div class="result-building-item">
+                <span class="result-building-name">${i+1}# ${b.name}</span>
+                <span class="result-building-area">${b.area.toLocaleString()}㎡</span>
+                <span class="result-building-floors">${b.floors}</span>
+            </div>`;
+        });
+    }
+
+    // 构建5专业结构化内容
+    const mep5 = info.mep || {
+        给排水: { 系统: [], 管材: [], 设备: [] },
+        暖通: { 系统: [], 管材: [], 设备: [] },
+        电气: { 系统: [], 管材: [], 设备: [] },
+        弱电: { 系统: [], 管材: [], 设备: [] },
+        消防: { 系统: [], 管材: [], 设备: [] }
+    };
+
+    function buildMepSection(name, data) {
+        if (!data || (!data.系统 || data.系统.length === 0) && (!data.管材 || data.管材.length === 0) && (!data.设备 || data.设备.length === 0)) {
+            return '';
+        }
+        let html = `<div class="mep-section">
+            <div class="mep-section-title">◆ ${name}</div>`;
+        if (data.系统 && data.系统.length > 0) {
+            html += `<div class="mep-row"><span class="mep-label">系统配置</span><span class="mep-value">${data.系统.join('、')}</span></div>`;
+        }
+        if (data.管材 && data.管材.length > 0) {
+            html += `<div class="mep-row"><span class="mep-label">管材材质</span><span class="mep-value">${data.管材.join('、')}</span></div>`;
+        }
+        if (data.设备 && data.设备.length > 0) {
+            html += `<div class="mep-row"><span class="mep-label">主要设备</span><span class="mep-value">${data.设备.join('、')}</span></div>`;
+        }
+        html += '</div>';
+        return html;
+    }
+
+    // 构建未识别项
+    let warningsHtml = '';
+    const warnings = [];
+    if (!info.name) warnings.push('项目名称');
+    if (!info.totalArea) warnings.push('总建筑面积');
+    if (!info.buildings || info.buildings.length === 0) warnings.push('栋号信息');
+    if (info.warnings) warnings.push(...info.warnings);
+    if (warnings.length > 0) {
+        warningsHtml = `<div class="result-warnings">
+            <div class="result-warnings-title">⚠️ 未识别项（请手动补充）</div>
+            <div class="result-warnings-list">${warnings.map(w => `· ${w}`).join('<br>')}</div>
+        </div>`;
+    }
+
+    const resultsHtml = `
+    <div class="extraction-result-modal">
+        <div class="result-header">
+            <div class="result-title">✅ 提取完成</div>
+        </div>
+        <div class="result-body">
+            <div class="result-section">
+                <div class="result-row"><span class="result-label">项目名称</span><span class="result-value">${info.name || '—'}</span></div>
+                <div class="result-row"><span class="result-label">业态类型</span><span class="result-value">${info.bizType || '—'}</span></div>
+                <div class="result-row">
+                    <span class="result-label">总建筑面积</span>
+                    <span class="result-value">${info.totalArea ? info.totalArea.toLocaleString() + ' ㎡' : '—'}</span>
+                    ${info.aboveArea ? `<span class="result-sub">（地上${info.aboveArea.toLocaleString()} / 地下${info.belowArea ? info.belowArea.toLocaleString() : '?'}）</span>` : ''}
+                </div>
+                <div class="result-row"><span class="result-label">教学班数</span><span class="result-value">${info.classes ? info.classes + '班' : '—'}</span></div>
+            </div>
+
+            <div class="result-section">
+                <div class="result-section-title">📐 楼栋信息</div>
+                ${buildingHtml || '<div class="result-empty">未识别到楼栋信息</div>'}
+                ${info.buildings && info.buildings.length > 0 ? `<div class="result-total-buildings">共 ${info.buildings.length} 栋</div>` : ''}
+            </div>
+
+            <div class="result-section">
+                <div class="result-section-title">🔧 机电专业（5大专业）</div>
+                <div class="mep-container">
+                    ${buildMepSection('给排水', mep5.给排水)}
+                    ${buildMepSection('暖通', mep5.暖通)}
+                    ${buildMepSection('电气', mep5.电气)}
+                    ${buildMepSection('弱电', mep5.弱电)}
+                    ${buildMepSection('消防', mep5.消防)}
+                </div>
+            </div>
+
+            ${warningsHtml}
+        </div>
+        <div class="result-footer">
+            <button class="btn btn-primary" onclick="closeExtractionModal(); fillFormFromExtractedInfo(extractedProjectInfo);">填入表单 → 继续</button>
+        </div>
+    </div>`;
+
+    let modal = document.getElementById('extractionModal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'extractionModal';
+        modal.className = 'extraction-modal-overlay';
+        document.body.appendChild(modal);
+    }
+    modal.innerHTML = resultsHtml;
+    modal.style.display = 'flex';
+}
+
+
+function closeExtractionModal() {
+    const modal = document.getElementById('extractionModal');
+    if (modal) modal.style.display = 'none';
+}
+
+// fillFormFromExtractedInfo - 将提取结果填入表单
+function fillFormFromExtractedInfo(info) {
+    if (!info) return;
+    // 项目名称
+    const nameInput = document.getElementById('projectName');
+    if (nameInput && info.name) nameInput.value = info.name;
+    // 总面积
+    const areaInput = document.getElementById('totalArea');
+    if (areaInput && info.totalArea) areaInput.value = info.totalArea;
+    // 栋号 - 调用栋号添加
+    if (info.buildings && info.buildings.length > 0) {
+        // 先清空现有栋号
+        clearBuildingRows();
+        info.buildings.forEach(b => addBuildingRow(b.name, b.area, b.floors));
+    }
+    closeExtractionModal();
+}
+
+function clearBuildingRows() {
+    const container = document.getElementById('buildingRows');
+    if (container) container.innerHTML = '';
+}
+
+// ========== 文件上传相关 ==========
+function initDragDrop() {
+    const uploadArea = document.getElementById('uploadArea');
+    if (!uploadArea) return;
+    
+    uploadArea.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        this.classList.add('dragover');
+    });
+    uploadArea.addEventListener('dragleave', function() {
+        this.classList.remove('dragover');
+    });
+    uploadArea.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFileUpload(files[0]);
+        }
+    });
+}
+
+function handleFileSelect(event) {
+    const file = event.target.files[0];
+    if (file) handleFileUpload(file);
+}
+
+async function handleFileUpload(file) {
+    const allowedTypes = [
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/msword',
+        'application/pdf'
+    ];
+    
+    // 允许.docx格式
+    const isDocx = file.name.match(/\.docx$/i);
+    
+    if (!allowedTypes.includes(file.type) && !isDocx && !file.name.match(/\.(docx?|pdf)$/i)) {
+        showModal('格式错误', '仅支持 .docx .doc .pdf 格式文件', [
+            { text: '确定', class: 'btn-primary', onClick: closeModal }
+        ]);
+        return;
+    }
+
+    if (file.size > 50 * 1024 * 1024) {
+        showModal('文件过大', '文件大小不能超过 50MB', [
+            { text: '确定', class: 'btn-primary', onClick: closeModal }
+        ]);
+        return;
+    }
+
+    const uploadStatus = document.getElementById('uploadStatus');
+    const processSteps = document.getElementById('processSteps');
+    const fileName = document.getElementById('fileName');
+    const fileSize = document.getElementById('fileSize');
+    const progressFill = document.getElementById('progressFill');
+    const progressText = document.getElementById('progressText');
+    const statusMessage = document.getElementById('statusMessage');
+
+    uploadStatus.style.display = 'block';
+    processSteps.style.display = 'flex';
+    fileName.textContent = file.name;
+    fileSize.textContent = (file.size / 1024 / 1024).toFixed(2) + ' MB';
+    statusMessage.textContent = '正在上传...';
+    statusMessage.style.color = 'var(--text-light)';
+
+    // 模拟上传进度
+    let progress = 0;
+    const uploadInterval = setInterval(() => {
+        progress += Math.random() * 15;
+        if (progress >= 100) {
+            progress = 100;
+            clearInterval(uploadInterval);
+            progressFill.style.width = '100%';
+            progressText.textContent = '100%';
+            statusMessage.textContent = '上传完成！';
+            document.getElementById('step1').classList.add('completed');
+            document.getElementById('step1').classList.remove('active');
+            simulateFileProcessing(file);
+        } else {
+            progressFill.style.width = progress + '%';
+            progressText.textContent = Math.round(progress) + '%';
+        }
+    }, 200);
+}
+
+async function simulateFileProcessing(file) {
+    document.getElementById('step2').classList.add('active');
+    document.getElementById('statusMessage').textContent = '正在解析Word文档...';
+
+    try {
+        // 使用mammoth.js解析Word文档（优化版）
+        updateProcessingStatus('正在加载文档...', 5);
+        const text = await parseWordDocument(file);
+        
+        updateProcessingStatus('正在提取关键信息...', 70);
+        
+        setTimeout(() => {
+            document.getElementById('step2').classList.remove('active');
+            document.getElementById('step2').classList.add('completed');
+            document.getElementById('step3').classList.add('active');
+            document.getElementById('statusMessage').textContent = '正在生成模拟清单...';
+            updateProcessingStatus('正在生成模拟清单...', 80);
+            
+            // 通用模式：直接提取项目信息
+            extractedProjectInfo = extractProjectInfo(text);
+            
+            // 自动填表
+            autoFillForm(extractedProjectInfo);
+            
+            setTimeout(() => {
+                document.getElementById('step3').classList.remove('active');
+                document.getElementById('step3').classList.add('completed');
+                document.getElementById('step4').classList.add('active');
+                document.getElementById('statusMessage').textContent = '正在计算各项指标...';
+                updateProcessingStatus('正在计算指标...', 90);
+                
+                setTimeout(() => {
+                    document.getElementById('step4').classList.remove('active');
+                    document.getElementById('step4').classList.add('completed');
+                    document.getElementById('statusMessage').textContent = '处理完成！';
+                    updateProcessingStatus('处理完成！', 100);
+                    document.getElementById('statusMessage').style.color = 'var(--primary-color)';
+                    
+                    // 显示提取结果
+                    const resultsHtml = showExtractionResults(extractedProjectInfo);
+                    showModal('文件解析完成', `
+                        <p>成功从文档中提取项目信息！</p>
+                        ${resultsHtml}
+                        <p style="margin-top:15px;">请前往「项目信息」查看提取结果，或直接点击「生成估算概算」</p>
+                    `, [
+                        { text: '查看项目信息', class: 'btn-primary', onClick: () => { closeModal(); switchSection('info'); } }
+                    ]);
+                }, 500);
+            }, 300);
+        }, 500);
+    } catch (error) {
+        console.error('Word解析失败:', error);
+        // 降级处理：使用文件名推测
+        document.getElementById('step2').classList.remove('active');
+        document.getElementById('step2').classList.add('completed');
+        document.getElementById('step3').classList.add('active');
+        document.getElementById('statusMessage').textContent = '解析遇到问题，使用默认处理...';
+        updateProcessingStatus('使用默认处理...', 50);
+        
+        extractProjectInfoFallback(file);
+    }
+}
+
+function extractProjectInfoFallback(file) {
+    // 从文件名推测项目信息
+    const fileName = file.name.replace(/\.(docx?|pdf)$/i, '');
+    
+    let projectName = fileName
+        .replace(/估算|概算|说明书|项目/g, '')
+        .replace(/[_-]+/g, '')
+        .trim();
+    
+    if (!projectName) projectName = '某新建项目';
+    document.getElementById('projectName').value = projectName;
+    
+    // 自动识别业态
+    const businessKeywords = {
+        '住宅': ['住宅', '小区', '保障房', '安居'],
+        '办公': ['办公楼', '写字楼', '商务'],
+        '商业': ['商业', '商场', '综合体', '购物中心'],
+        '酒店': ['酒店', '宾馆', '公寓'],
+        '学校': ['学校', '学院', '幼儿园', '中小学', '教学楼', '完全中学'],
+        '医院': ['医院', '医疗', '卫生'],
+        '厂房': ['厂房', '车间', '工业'],
+        '体育': ['体育馆', '游泳馆', '体育场'],
+        '交通': ['车站', '航站', '枢纽', '高铁'],
+        '文化': ['图书馆', '博物馆', '剧院']
+    };
+    
+    for (const [biz, keywords] of Object.entries(businessKeywords)) {
+        if (keywords.some(k => fileName.includes(k))) {
+            document.getElementById('businessType').value = getFirstMatchingOption(biz);
+            break;
+        }
+    }
+    
+    onBusinessTypeChange();
+    
+    setTimeout(() => {
+        document.getElementById('step3').classList.remove('active');
+        document.getElementById('step3').classList.add('completed');
+        document.getElementById('step4').classList.add('active');
+        document.getElementById('statusMessage').textContent = '处理完成！';
+        document.getElementById('statusMessage').style.color = 'var(--primary-color)';
+        document.getElementById('step4').classList.remove('active');
+        document.getElementById('step4').classList.add('completed');
+        
+        showModal('处理完成', `
+            <p>文件已处理完成！</p>
+            <p style="margin-top:10px;">未能完整解析文档内容，部分信息需要手动填写。</p>
+            <p style="margin-top:10px;">请前往「项目信息」完善项目信息，然后生成估算概算。</p>
+        `, [
+            { text: '查看项目信息', class: 'btn-primary', onClick: () => { closeModal(); switchSection('info'); } }
+        ]);
+    }, 1000);
+}
+
+// ========== 加载示例项目（华苑完中） ==========
+function loadHuayuanExample() {
+    // 华苑完中项目示例数据
+    const huayuanData = {
+        name: '天津市滨海高新区华苑完全中学项目（高中部）',
+        buildings: [
+            { name: '综合教学楼', area: 34850, height: 24 },
+            { name: '学生宿舍楼', area: 15140, height: 22 },
+            { name: '食堂及风雨操场', area: 4990, height: 12 },
+            { name: '地下配套用房', area: 5000, height: 4 }
+        ],
+        bizType: '中小学',
+        regionFactor: 1.0,
+        waterSupply: '市政直供',
+        hotWater: '太阳能+空气源热泵',
+        fireProtection: ['室内消火栓', '自动喷淋'],
+        acType: '风机盘管+新风',
+        heatingType: '地源热泵',
+        smokeControl: ['正压送风', '机械排烟'],
+        transformer: '2×1600kVA',
+        powerBackup: ['柴发', '双电源切换']
+    };
+
+    // 填充表单
+    document.getElementById('projectName').value = huayuanData.name;
+    document.getElementById('businessType').value = huayuanData.bizType;
+    document.getElementById('regionFactor').value = huayuanData.regionFactor;
+
+    // 栋号信息
+    const buildingList = document.getElementById('buildingList');
+    buildingList.innerHTML = '';
+
+    huayuanData.buildings.forEach((building, index) => {
+        const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        const letter = letters[index] || (index + 1);
+        const newBuilding = document.createElement('div');
+        newBuilding.className = 'building-item';
+        newBuilding.dataset.index = index;
+        newBuilding.innerHTML = `
+            <div class="building-header">
+                <span class="building-name">栋号 ${letter}</span>
+                <button class="btn-danger btn-sm" onclick="removeBuilding(this)"><i class="fas fa-trash"></i></button>
+            </div>
+            <div class="info-item">
+                <label>栋号名称</label>
+                <input type="text" class="building-name-input" value="${building.name}" placeholder="栋号名称">
+            </div>
+            <div class="info-item">
+                <label>建筑面积（㎡）</label>
+                <input type="number" class="building-area-input" value="${building.area}" placeholder="建筑面积">
+            </div>
+            <div class="info-item">
+                <label>建筑高度（m）</label>
+                <input type="number" class="building-height-input" value="${building.height}" placeholder="建筑高度">
+            </div>
+        `;
+        buildingList.appendChild(newBuilding);
+    });
+
+    updateBuildingButtons();
+
+    // 机电专业信息
+    document.getElementById('hotWater').value = huayuanData.hotWater;
+    document.getElementById('acType').value = huayuanData.acType;
+    document.getElementById('heatingType').value = huayuanData.heatingType;
+    document.getElementById('transformerCapacity').value = huayuanData.transformer;
+
+    // 勾选复选框
+    huayuanData.fireProtection.forEach(item => {
+        const checkbox = document.querySelector(`#section-info input[value="${item}"]`);
+        if (checkbox) checkbox.checked = true;
+    });
+
+    huayuanData.smokeControl.forEach(item => {
+        const checkbox = document.querySelector(`#section-info input[value="${item}"]`);
+        if (checkbox) checkbox.checked = true;
+    });
+
+    huayuanData.powerBackup.forEach(item => {
+        const checkbox = document.querySelector(`#section-info input[value="${item}"]`);
+        if (checkbox) checkbox.checked = true;
+    });
+
+    onBusinessTypeChange();
+
+    showModal('示例项目已加载', `
+        <p>已加载「华苑完全中学（高中部）」示例项目数据：</p>
+        <ul style="margin-top:10px;line-height:1.8;">
+            <li>总建筑面积：60,000㎡</li>
+            <li>综合教学楼：34,850㎡</li>
+            <li>学生宿舍楼：15,140㎡</li>
+            <li>食堂及风雨操场：4,990㎡</li>
+            <li>地下配套用房：5,000㎡</li>
+        </ul>
+        <p style="margin-top:15px;">可直接点击「生成估算概算」查看效果！</p>
+    `, [
+        { text: '生成估算概算', class: 'btn-primary', onClick: () => { closeModal(); generateEstimate(); } }
+    ]);
+}
+
+// ========== 栋号管理 ==========
+function addBuilding() {
+    const buildingList = document.getElementById('buildingList');
+    const index = buildingList.querySelectorAll('.building-item').length;
+    const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const letter = letters[index] || (index + 1);
+    
+    const newBuilding = document.createElement('div');
+    newBuilding.className = 'building-item';
+    newBuilding.dataset.index = index;
+    newBuilding.innerHTML = `
+        <div class="building-header">
+            <span class="building-name">栋号 ${letter}</span>
+            <button class="btn-danger btn-sm" onclick="removeBuilding(this)"><i class="fas fa-trash"></i></button>
+        </div>
+        <div class="info-item">
+            <label>栋号名称</label>
+            <input type="text" class="building-name-input" value="${letter}座" placeholder="栋号名称">
+        </div>
+        <div class="info-item">
+            <label>建筑面积（㎡）</label>
+            <input type="number" class="building-area-input" placeholder="建筑面积">
+        </div>
+        <div class="info-item">
+            <label>建筑高度（m）</label>
+            <input type="number" class="building-height-input" placeholder="建筑高度">
+        </div>
+    `;
+    buildingList.appendChild(newBuilding);
+    updateBuildingButtons();
+}
+
+function removeBuilding(btn) {
+    const items = document.querySelectorAll('.building-item');
+    if (items.length <= 1) {
+        showModal('提示', '至少保留一个栋号', [{ text: '确定', class: 'btn-primary', onClick: closeModal }]);
+        return;
+    }
+    btn.closest('.building-item').remove();
+    updateBuildingButtons();
+}
+
+function updateBuildingButtons() {
+    const items = document.querySelectorAll('.building-item');
+    items.forEach(item => {
+        const delBtn = item.querySelector('.btn-danger');
+        if (delBtn) delBtn.style.display = items.length > 1 ? 'block' : 'none';
+    });
+}
+
+// ========== 业态指标预览 ==========
+const INDICATORS = {
+    '普通住宅': {
+        total: { low: 280, mid: 350, high: 420 },
+        water: { low: 60, mid: 80, high: 105 },
+        hvac: { low: 50, mid: 70, high: 95 },
+        electric: { low: 80, mid: 110, high: 145 },
+        ratio: [28, 25, 47]
+    },
+    '高端住宅': {
+        total: { low: 500, mid: 680, high: 900 },
+        water: { low: 110, mid: 150, high: 200 },
+        hvac: { low: 120, mid: 170, high: 230 },
+        electric: { low: 150, mid: 200, high: 280 },
+        ratio: [26, 29, 45]
+    },
+    '别墅': {
+        total: { low: 600, mid: 850, high: 1200 },
+        water: { low: 140, mid: 200, high: 280 },
+        hvac: { low: 150, mid: 220, high: 320 },
+        electric: { low: 180, mid: 250, high: 360 },
+        ratio: [25, 28, 47]
+    },
+    '普通办公楼': {
+        total: { low: 320, mid: 420, high: 550 },
+        water: { low: 55, mid: 75, high: 100 },
+        hvac: { low: 80, mid: 120, high: 170 },
+        electric: { low: 100, mid: 140, high: 190 },
+        ratio: [22, 32, 46]
+    },
+    '甲级写字楼': {
+        total: { low: 550, mid: 750, high: 1000 },
+        water: { low: 90, mid: 120, high: 160 },
+        hvac: { low: 150, mid: 220, high: 310 },
+        electric: { low: 170, mid: 240, high: 330 },
+        ratio: [19, 34, 47]
+    },
+    '商业综合体': {
+        total: { low: 500, mid: 680, high: 900 },
+        water: { low: 90, mid: 120, high: 160 },
+        hvac: { low: 130, mid: 200, high: 280 },
+        electric: { low: 150, mid: 210, high: 290 },
+        ratio: [20, 34, 46]
+    },
+    '购物中心': {
+        total: { low: 420, mid: 580, high: 780 },
+        water: { low: 80, mid: 110, high: 150 },
+        hvac: { low: 110, mid: 170, high: 240 },
+        electric: { low: 130, mid: 180, high: 260 },
+        ratio: [20, 33, 47]
+    },
+    '快捷酒店': {
+        total: { low: 380, mid: 500, high: 650 },
+        water: { low: 70, mid: 95, high: 130 },
+        hvac: { low: 90, mid: 135, high: 190 },
+        electric: { low: 100, mid: 140, high: 195 },
+        ratio: [21, 30, 49]
+    },
+    '三星级酒店': {
+        total: { low: 500, mid: 680, high: 900 },
+        water: { low: 100, mid: 140, high: 190 },
+        hvac: { low: 130, mid: 190, high: 270 },
+        electric: { low: 140, mid: 200, high: 280 },
+        ratio: [20, 31, 49]
+    },
+    '四星级酒店': {
+        total: { low: 680, mid: 900, high: 1200 },
+        water: { low: 130, mid: 180, high: 240 },
+        hvac: { low: 180, mid: 260, high: 360 },
+        electric: { low: 190, mid: 270, high: 380 },
+        ratio: [19, 32, 49]
+    },
+    '五星级酒店': {
+        total: { low: 900, mid: 1300, high: 1800 },
+        water: { low: 180, mid: 260, high: 360 },
+        hvac: { low: 280, mid: 420, high: 600 },
+        electric: { low: 280, mid: 400, high: 570 },
+        ratio: [18, 33, 49]
+    },
+    '幼儿园': {
+        total: { low: 300, mid: 400, high: 530 },
+        water: { low: 65, mid: 90, high: 120 },
+        hvac: { low: 70, mid: 105, high: 155 },
+        electric: { low: 85, mid: 120, high: 170 },
+        ratio: [22, 29, 49]
+    },
+    '中小学': {
+        total: { low: 280, mid: 370, high: 490 },
+        water: { low: 55, mid: 75, high: 100 },
+        hvac: { low: 60, mid: 90, high: 135 },
+        electric: { low: 80, mid: 115, high: 165 },
+        ratio: [21, 27, 52]
+    },
+    '高校教学楼': {
+        total: { low: 320, mid: 430, high: 570 },
+        water: { low: 55, mid: 75, high: 100 },
+        hvac: { low: 80, mid: 120, high: 175 },
+        electric: { low: 100, mid: 145, high: 205 },
+        ratio: [20, 30, 50]
+    },
+    '社区医院': {
+        total: { low: 380, mid: 500, high: 660 },
+        water: { low: 80, mid: 110, high: 150 },
+        hvac: { low: 90, mid: 135, high: 195 },
+        electric: { low: 110, mid: 155, high: 220 },
+        ratio: [21, 29, 50]
+    },
+    '二甲医院': {
+        total: { low: 550, mid: 750, high: 1000 },
+        water: { low: 120, mid: 165, high: 225 },
+        hvac: { low: 140, mid: 210, high: 300 },
+        electric: { low: 160, mid: 225, high: 320 },
+        ratio: [20, 31, 49]
+    },
+    '三甲医院': {
+        total: { low: 750, mid: 1050, high: 1450 },
+        water: { low: 170, mid: 240, high: 340 },
+        hvac: { low: 210, mid: 320, high: 460 },
+        electric: { low: 220, mid: 320, high: 460 },
+        ratio: [19, 31, 50]
+    },
+    '体育馆': {
+        total: { low: 450, mid: 620, high: 850 },
+        water: { low: 80, mid: 110, high: 160 },
+        hvac: { low: 130, mid: 200, high: 290 },
+        electric: { low: 140, mid: 200, high: 295 },
+        ratio: [18, 33, 49]
+    },
+    '游泳馆': {
+        total: { low: 600, mid: 850, high: 1200 },
+        water: { low: 200, mid: 300, high: 450 },
+        hvac: { low: 160, mid: 250, high: 370 },
+        electric: { low: 140, mid: 200, high: 295 },
+        ratio: [28, 31, 41]
+    },
+    '图书馆': {
+        total: { low: 400, mid: 550, high: 750 },
+        water: { low: 65, mid: 90, high: 130 },
+        hvac: { low: 100, mid: 155, high: 225 },
+        electric: { low: 120, mid: 175, high: 255 },
+        ratio: [18, 31, 51]
+    },
+    '博物馆': {
+        total: { low: 550, mid: 780, high: 1100 },
+        water: { low: 90, mid: 130, high: 190 },
+        hvac: { low: 160, mid: 250, high: 370 },
+        electric: { low: 170, mid: 260, high: 385 },
+        ratio: [16, 33, 51]
+    },
+    '钢结构厂房': {
+        total: { low: 200, mid: 280, high: 400 },
+        water: { low: 40, mid: 55, high: 80 },
+        hvac: { low: 35, mid: 55, high: 90 },
+        electric: { low: 70, mid: 100, high: 150 },
+        ratio: [20, 22, 58]
+    },
+    '框架厂房': {
+        total: { low: 220, mid: 310, high: 440 },
+        water: { low: 45, mid: 60, high: 90 },
+        hvac: { low: 40, mid: 65, high: 105 },
+        electric: { low: 75, mid: 110, high: 165 },
+        ratio: [20, 23, 57]
+    },
+    '洁净厂房': {
+        total: { low: 650, mid: 950, high: 1500 },
+        water: { low: 100, mid: 145, high: 220 },
+        hvac: { low: 250, mid: 400, high: 650 },
+        electric: { low: 180, mid: 270, high: 420 },
+        ratio: [13, 43, 44]
+    },
+    '冷链仓库': {
+        total: { low: 450, mid: 650, high: 950 },
+        water: { low: 60, mid: 85, high: 130 },
+        hvac: { low: 200, mid: 320, high: 500 },
+        electric: { low: 110, mid: 160, high: 245 },
+        ratio: [13, 49, 38]
+    },
+    '火车站': {
+        total: { low: 500, mid: 700, high: 1000 },
+        water: { low: 90, mid: 130, high: 190 },
+        hvac: { low: 130, mid: 200, high: 300 },
+        electric: { low: 160, mid: 235, high: 350 },
+        ratio: [18, 30, 52]
+    },
+    '高铁站': {
+        total: { low: 600, mid: 850, high: 1250 },
+        water: { low: 110, mid: 160, high: 235 },
+        hvac: { low: 160, mid: 250, high: 385 },
+        electric: { low: 190, mid: 285, high: 425 },
+        ratio: [17, 30, 53]
+    },
+    '航站楼': {
+        total: { low: 650, mid: 950, high: 1400 },
+        water: { low: 120, mid: 175, high: 260 },
+        hvac: { low: 200, mid: 320, high: 490 },
+        electric: { low: 200, mid: 300, high: 460 },
+        ratio: [16, 33, 51]
+    },
+    '研发楼': {
+        total: { low: 450, mid: 620, high: 850 },
+        water: { low: 80, mid: 115, high: 160 },
+        hvac: { low: 120, mid: 185, high: 275 },
+        electric: { low: 140, mid: 210, high: 310 },
+        ratio: [18, 31, 51]
+    },
+    '保障性住房': {
+        total: { low: 230, mid: 300, high: 380 },
+        water: { low: 50, mid: 65, high: 85 },
+        hvac: { low: 40, mid: 55, high: 75 },
+        electric: { low: 65, mid: 90, high: 120 },
+        ratio: [24, 22, 54]
+    },
+    '地下车库': {
+        total: { low: 280, mid: 400, high: 580 },
+        water: { low: 60, mid: 85, high: 125 },
+        hvac: { low: 60, mid: 95, high: 150 },
+        electric: { low: 100, mid: 145, high: 215 },
+        ratio: [20, 28, 52]
+    }
+};
+
+function getFirstMatchingOption(bizType) {
+    const options = {
+        '住宅': ['普通住宅', '高端住宅'],
+        '办公': ['普通办公楼', '甲级写字楼'],
+        '商业': ['商业综合体', '购物中心'],
+        '酒店': ['快捷酒店', '四星级酒店'],
+        '学校': ['中小学', '高校教学楼'],
+        '医院': ['二甲医院', '三甲医院'],
+        '厂房': ['框架厂房', '钢结构厂房'],
+        '体育': ['体育馆'],
+        '交通': ['高铁站'],
+        '文化': ['图书馆']
+    };
+    return options[bizType] ? options[bizType][0] : '';
+}
+
+function onBusinessTypeChange() {
+    const bizType = document.getElementById('businessType').value;
+    const previewValue = document.getElementById('previewValue');
+    
+    if (bizType && INDICATORS[bizType]) {
+        const data = INDICATORS[bizType];
+        previewValue.textContent = `${data.total.low}~${data.total.high} 元/㎡`;
+    } else {
+        previewValue.textContent = '选择业态后显示';
+    }
+}
+
+// ========== 清单生成 ==========
+let generatedData = null;
+
+// ========== 按栋号分组生成清单 ==========
+function generateListsByBuilding(buildings, indicator, regionFactor, extractedDevices) {
+    const result = {
+        water: [],
+        hvac: [],
+        electric: [],
+        fire: [],
+        weakElec: [],
+        summary: {}
+    };
+    
+    const isUndergroundCheck = (name) => /地下|车库|设备用房|地下室/i.test(name);
+    
+    buildings.forEach((building, idx) => {
+        const buildingId = `building_${idx}`;
+        const buildingTotalArea = building.area;
+        const buildingBudget = {
+            water: indicator.water.mid * buildingTotalArea * regionFactor,
+            hvac: indicator.hvac.mid * buildingTotalArea * regionFactor,
+            electric: indicator.electric.mid * buildingTotalArea * regionFactor,
+            fire: indicator.fire.mid * buildingTotalArea * regionFactor,
+            weakElec: indicator.weak.mid * buildingTotalArea * regionFactor
+        };
+        
+        const buildingTag = isUndergroundCheck(building.name) 
+            ? `【地下室-${building.name}】` 
+            : `【${building.name}】`;
+        
+        result.water.push(...generateWaterItemsByBuilding(building, buildingBudget.water, extractedDevices, buildingTag));
+        result.hvac.push(...generateHvacItemsByBuilding(building, buildingBudget.hvac, extractedDevices, buildingTag));
+        result.electric.push(...generateElectricItemsByBuilding(building, buildingBudget.electric, extractedDevices, buildingTag));
+        result.fire.push(...generateFireItemsByBuilding(building, buildingBudget.fire, extractedDevices, buildingTag));
+        result.weakElec.push(...generateWeakElecItemsByBuilding(building, buildingBudget.weakElec, extractedDevices, buildingTag));
+        
+        result.summary[buildingId] = {
+            name: building.name,
+            area: buildingTotalArea,
+            isUnderground: isUndergroundCheck(building.name)
+        };
+    });
+    
+    return result;
+}
+
+function generateWaterItemsByBuilding(building, budget, extractedDevices, buildingTag) {
+    const items = [];
+    const isUg = /地下|车库|设备用房|地下室/i.test(building.name);
+    
+    if (extractedDevices && extractedDevices.给排水 && extractedDevices.给排水.设备) {
+        extractedDevices.给排水.设备.forEach((eq) => {
+            let tag = buildingTag;
+            if (/潜水泵|排水|排污/i.test(eq)) {
+                tag = isUg ? buildingTag : '';
+            }
+            if (tag) {
+                items.push({
+                    code: TJ2025_CODES.给排水.供水设备,
+                    name: `${tag}【主要设备】${eq}`,
+                    unit: '套', qty: '1',
+                    unitPrice: 15000 * 1.2, amount: 15000 * 1.2,
+                    isExtracted: true, building: building.name
+                });
+            }
+        });
+    }
+    
+    const baseItems = WATER_ITEMS.slice(0, 8);
+    let remaining = budget - items.reduce((s, i) => s + i.amount, 0);
+    if (remaining < 0) remaining = budget * 0.5;
+    
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty, unitPrice, amount;
+        if (i < baseItems.length - 1) {
+            qty = Math.round(building.area * ratio * 0.001);
+            unitPrice = item.basePrice * 1.2;
+            amount = qty * unitPrice;
+        } else {
+            amount = remaining;
+            qty = Math.round(remaining / unitPrice);
+        }
+        remaining -= amount;
+        items.push({
+            code: WATER_CODES[i % WATER_CODES.length],
+            name: `${buildingTag}${item.name}`,
+            unit: item.unit, qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100,
+            building: building.name
+        });
+    });
+    return items;
+}
+
+function generateHvacItemsByBuilding(building, budget, extractedDevices, buildingTag) {
+    const items = [];
+    if (extractedDevices && extractedDevices.暖通 && extractedDevices.暖通.设备) {
+        extractedDevices.暖通.设备.forEach((eq) => {
+            items.push({
+                code: TJ2025_CODES.暖通.设备安装,
+                name: `${buildingTag}【主要设备】${eq}`,
+                unit: '台', qty: '1',
+                unitPrice: 12000 * 1.2, amount: 12000 * 1.2,
+                isExtracted: true, building: building.name
+            });
+        });
+    }
+    const baseItems = HVAC_ITEMS.slice(0, 8);
+    let remaining = budget - items.reduce((s, i) => s + i.amount, 0);
+    if (remaining < 0) remaining = budget * 0.5;
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty = Math.round(building.area * ratio * 0.001);
+        let unitPrice = item.basePrice * 1.2;
+        let amount = qty * unitPrice;
+        items.push({
+            code: HVAC_CODES[i % HVAC_CODES.length],
+            name: `${buildingTag}${item.name}`,
+            unit: item.unit, qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100,
+            building: building.name
+        });
+    });
+    return items;
+}
+
+function generateElectricItemsByBuilding(building, budget, extractedDevices, buildingTag) {
+    const items = [];
+    const isUg = /地下|车库|设备用房|地下室/i.test(building.name);
+    if (extractedDevices && extractedDevices.电气 && extractedDevices.电气.设备) {
+        extractedDevices.电气.设备.forEach((eq) => {
+            const price = getEquipmentPrice(eq) * 1.15;
+            items.push({
+                code: TJ2025_CODES.电气.配变电系统,
+                name: `${buildingTag}【主要设备】${eq}`,
+                unit: '台', qty: '1',
+                unitPrice: price, amount: price,
+                isExtracted: true, building: building.name
+            });
+        });
+    }
+    if (isUg) {
+        items.push({
+            code: TJ2025_CODES.电气.配变电系统,
+            name: `${buildingTag}低压配电柜（配电室专用）`,
+            unit: '面', qty: '5',
+            unitPrice: 28000 * 1.15, amount: 5 * 28000 * 1.15,
+            building: building.name
+        });
+    }
+    const baseItems = ELECTRIC_ITEMS.filter(item => 
+        item.name.includes('配电') || item.name.includes('照明') || 
+        item.name.includes('桥架') || item.name.includes('电缆') || 
+        item.name.includes('配管') || item.name.includes('配线') ||
+        item.name.includes('防雷') || item.name.includes('接地')
+    ).slice(0, 8);
+    let remaining = budget - items.reduce((s, i) => s + i.amount, 0);
+    if (remaining < 0) remaining = budget * 0.5;
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty = Math.round(building.area * ratio * 0.001);
+        let unitPrice = item.basePrice * 1.15;
+        let amount = qty * unitPrice;
+        items.push({
+            code: ELECTRIC_CODES[i % ELECTRIC_CODES.length],
+            name: `${buildingTag}${item.name}`,
+            unit: item.unit, qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100,
+            building: building.name
+        });
+    });
+    return items;
+}
+
+function generateFireItemsByBuilding(building, budget, extractedDevices, buildingTag) {
+    const items = [];
+    if (extractedDevices && extractedDevices.消防 && extractedDevices.消防.设备) {
+        extractedDevices.消防.设备.forEach((eq) => {
+            items.push({
+                code: TJ2025_CODES.消防.消防调试,
+                name: `${buildingTag}【主要设备】${eq}`,
+                unit: '套', qty: '1',
+                unitPrice: 35000 * 1.15, amount: 35000 * 1.15,
+                isExtracted: true, building: building.name
+            });
+        });
+    }
+    const baseItems = FIRE_ITEMS.slice(0, 8);
+    let remaining = budget - items.reduce((s, i) => s + i.amount, 0);
+    if (remaining < 0) remaining = budget * 0.5;
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty = Math.round(building.area * ratio * 0.001);
+        let unitPrice = item.basePrice * 1.15;
+        let amount = qty * unitPrice;
+        items.push({
+            code: FIRE_CODES[i % FIRE_CODES.length],
+            name: `${buildingTag}${item.name}`,
+            unit: item.unit, qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100,
+            building: building.name
+        });
+    });
+    return items;
+}
+
+function generateWeakElecItemsByBuilding(building, budget, extractedDevices, buildingTag) {
+    const items = [];
+    if (extractedDevices && extractedDevices.弱电 && extractedDevices.弱电.设备) {
+        extractedDevices.弱电.设备.forEach((eq) => {
+            items.push({
+                code: TJ2025_CODES.弱电.弱电设备,
+                name: `${buildingTag}【主要设备】${eq}`,
+                unit: '套', qty: '1',
+                unitPrice: 8000 * 1.15, amount: 8000 * 1.15,
+                isExtracted: true, building: building.name
+            });
+        });
+    }
+    const baseItems = WEAK_ELEC_ITEMS.slice(0, 8);
+    let remaining = budget - items.reduce((s, i) => s + i.amount, 0);
+    if (remaining < 0) remaining = budget * 0.5;
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty = Math.round(building.area * ratio * 0.001);
+        let unitPrice = item.basePrice * 1.15;
+        let amount = qty * unitPrice;
+        items.push({
+            code: WEAK_ELEC_CODES[i % WEAK_ELEC_CODES.length],
+            name: `${buildingTag}${item.name}`,
+            unit: item.unit, qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100,
+            building: building.name
+        });
+    });
+    return items;
+}
+
+function generateEstimate() {
+    const businessType = document.getElementById('businessType').value;
+    const regionFactor = parseFloat(document.getElementById('regionFactor').value);
+    
+    if (!businessType) {
+        showModal('提示', '请先选择项目业态类型', [
+            { text: '确定', class: 'btn-primary', onClick: closeModal }
+        ]);
+        return;
+    }
+    
+    const buildings = [];
+    document.querySelectorAll('.building-item').forEach(item => {
+        const name = item.querySelector('.building-name-input').value;
+        const area = parseFloat(item.querySelector('.building-area-input').value);
+        const height = parseFloat(item.querySelector('.building-height-input').value);
+        if (name && area) {
+            buildings.push({ name, area, height: height || 0 });
+        }
+    });
+    
+    if (buildings.length === 0) {
+        buildings.push({ name: 'A座', area: 10000, height: 50 });
+    }
+    
+    const totalArea = buildings.reduce((sum, b) => sum + b.area, 0);
+    const indicator = INDICATORS[businessType] || INDICATORS['普通住宅'];
+    
+    // 获取从Word提取的主要设备（如果有）
+    const extractedDevices = extractedProjectInfo?.mep || null;
+    
+    // 根据栋号数量决定生成方式
+    let waterList, hvacList, electricList, fireList, weakElecList;
+    let buildingSummary = null;
+    
+    if (buildings.length > 1) {
+        // 多栋号：按栋号分组生成
+        const buildingData = generateListsByBuilding(buildings, indicator, regionFactor, extractedDevices);
+        waterList = buildingData.water;
+        hvacList = buildingData.hvac;
+        electricList = buildingData.electric;
+        fireList = buildingData.fire;
+        weakElecList = buildingData.weakElec;
+        buildingSummary = buildingData.summary;
+    } else {
+        // 单栋号：统一生成
+        waterList = generateWaterList(buildings, indicator, regionFactor, extractedDevices);
+        hvacList = generateHvacList(buildings, indicator, regionFactor, extractedDevices);
+        electricList = generateElectricList(buildings, indicator, regionFactor, extractedDevices);
+        fireList = generateFireList(buildings, indicator, regionFactor, extractedDevices);
+        weakElecList = generateWeakElecList(buildings, indicator, regionFactor, extractedDevices);
+    }
+    
+    // 计算各专业总价
+    const waterTotal = waterList.reduce((s, i) => s + i.amount, 0);
+    const hvacTotal = hvacList.reduce((s, i) => s + i.amount, 0);
+    const electricTotal = electricList.reduce((s, i) => s + i.amount, 0);
+    const fireTotal = fireList.reduce((s, i) => s + i.amount, 0);
+    const weakElecTotal = weakElecList.reduce((s, i) => s + i.amount, 0);
+    const grandTotal = waterTotal + hvacTotal + electricTotal + fireTotal + weakElecTotal;
+    
+    generatedData = {
+        businessType,
+        regionFactor,
+        buildings,
+        totalArea,
+        indicator,
+        water: { list: waterList, total: waterTotal },
+        hvac: { list: hvacList, total: hvacTotal },
+        electric: { list: electricList, total: electricTotal },
+        fire: { list: fireList, total: fireTotal },
+        弱电系统: { list: weakElecList, total: weakElecTotal },
+        grandTotal,
+        // 保存提取的设备用于展示
+        extractedDevices: extractedDevices,
+        // 栋号汇总
+        buildingSummary: buildingSummary
+    };
+    
+    renderTables();
+    renderSummary();
+    updateSummaryHeader();
+    
+    switchSection('water');
+    document.querySelectorAll('.main-nav li').forEach(li => li.classList.remove('active'));
+    document.querySelector('.main-nav li[data-section="water"]').classList.add('active');
+    
+    // 显示提取的设备信息
+    let deviceInfo = '';
+    if (extractedDevices) {
+        const deviceCount = 
+            (extractedDevices.给排水?.设备?.length || 0) +
+            (extractedDevices.暖通?.设备?.length || 0) +
+            (extractedDevices.电气?.设备?.length || 0) +
+            (extractedDevices.消防?.设备?.length || 0) +
+            (extractedDevices.弱电?.设备?.length || 0);
+        if (deviceCount > 0) {
+            deviceInfo = `<br>已提取主要设备：${deviceCount} 项`;
+        }
+    }
+    
+    showModal('生成完成', `估算概算已生成！<br>总建筑面积：${totalArea.toLocaleString()} ㎡<br>安装总估算价：${(grandTotal/10000).toFixed(2)} 万元<br>综合单方造价：${(grandTotal/totalArea).toFixed(2)} 元/㎡${deviceInfo}`, [
+        { text: '查看给排水清单', class: 'btn-primary', onClick: () => { closeModal(); switchSection('water'); } },
+        { text: '查看指标汇总', class: 'btn-secondary', onClick: () => { closeModal(); switchSection('summary'); } }
+    ]);
+}
+
+// ========== 清单生成函数 ==========
+
+// 天津2025版计价规范编码（专业-系统-分部分项-序号）
+const TJ2025_CODES = {
+    // 安装-电气
+    电气: {
+        配变电系统: '安装-电气-配变电-0301',
+        供电干线: '安装-电气-供电干线-0302',
+        配电线路: '安装-电气-配电线路-0303',
+        照明系统: '安装-电气-照明系统-0304',
+        防雷接地: '安装-电气-防雷接地-0305',
+        电气调试: '安装-电气-调试-0306'
+    },
+    // 安装-给排水
+    给排水: {
+        给水系统: '安装-给排水-给水-0311',
+        排水系统: '安装-给排水-排水-0312',
+        雨水系统: '安装-给排水-雨水-0313',
+        卫生器具: '安装-给排水-卫生-0314',
+        供水设备: '安装-给排水-设备-0315',
+        管道附件: '安装-给排水-附件-0316'
+    },
+    // 安装-消防
+    消防: {
+        消火栓系统: '安装-消防-消火栓-0401',
+        自动喷淋: '安装-消防-喷淋-0402',
+        火灾报警: '安装-消防-报警-0403',
+        气体灭火: '安装-消防-气体-0404',
+        防排烟: '安装-消防-防排烟-0405',
+        消防调试: '安装-消防-调试-0406'
+    },
+    // 安装-暖通
+    暖通: {
+        通风系统: '安装-暖通-通风-0501',
+        空调系统: '安装-暖通-空调-0502',
+        供暖系统: '安装-暖通-供暖-0503',
+        设备安装: '安装-暖通-设备-0504',
+        管道安装: '安装-暖通-管道-0505',
+        暖通调试: '安装-暖通-调试-0506'
+    },
+    // 安装-弱电
+    弱电: {
+        综合布线: '安装-弱电-布线-0601',
+        安防系统: '安装-弱电-安防-0602',
+        广播音响: '安装-弱电-广播-0603',
+        智能家居: '安装-弱电-智能-0604',
+        弱电设备: '安装-弱电-设备-0605',
+        弱电调试: '安装-弱电-调试-0606'
+    }
+};
+
+const WATER_CODES = [TJ2025_CODES.给排水.给水系统, TJ2025_CODES.给排水.排水系统, TJ2025_CODES.给排水.管道附件, TJ2025_CODES.给排水.雨水系统, TJ2025_CODES.给排水.供水设备, TJ2025_CODES.给排水.卫生器具, TJ2025_CODES.给排水.管道附件, '安装-给排水-保温-0317'];
+const HVAC_CODES = [TJ2025_CODES.暖通.通风系统, TJ2025_CODES.暖通.空调系统, TJ2025_CODES.暖通.供暖系统, TJ2025_CODES.暖通.设备安装, TJ2025_CODES.暖通.管道安装, TJ2025_CODES.暖通.通风系统, TJ2025_CODES.暖通.设备安装, '安装-暖通-保温-0507'];
+const ELECTRIC_CODES = [TJ2025_CODES.电气.配变电系统, TJ2025_CODES.电气.供电干线, TJ2025_CODES.电气.配电线路, TJ2025_CODES.电气.照明系统, TJ2025_CODES.电气.防雷接地, TJ2025_CODES.电气.供电干线, TJ2025_CODES.电气.配电线路, TJ2025_CODES.电气.电气调试];
+const FIRE_CODES = [TJ2025_CODES.消防.自动喷淋, TJ2025_CODES.消防.消火栓系统, TJ2025_CODES.消防.火灾报警, TJ2025_CODES.消防.气体灭火, TJ2025_CODES.消防.防排烟, TJ2025_CODES.消防.消防调试, '安装-消防-设备-0407'];
+const WEAK_ELEC_CODES = [TJ2025_CODES.弱电.综合布线, TJ2025_CODES.弱电.安防系统, TJ2025_CODES.弱电.广播音响, TJ2025_CODES.弱电.智能家居, TJ2025_CODES.弱电.弱电设备, TJ2025_CODES.弱电.弱电调试, TJ2025_CODES.弱电.弱电设备];
+
+const WATER_ITEMS = [
+    { name: '室内生活给水管道（PP-R/PE）', unit: 'm', basePrice: 18, density: 0.8 },
+    { name: '室内排水管道（UPVC/PVC）', unit: 'm', basePrice: 14, density: 0.7 },
+    { name: '室内雨水管道', unit: 'm', basePrice: 16, density: 0.5 },
+    { name: '阀门安装（DN≤50）', unit: '个', basePrice: 45, density: 0.15 },
+    { name: '阀门安装（DN>50）', unit: '个', basePrice: 120, density: 0.08 },
+    { name: '法兰安装', unit: '副', basePrice: 85, density: 0.1 },
+    { name: '水表安装', unit: '组', basePrice: 180, density: 0.03 },
+    { name: '卫生器具安装（洗脸盆）', unit: '组', basePrice: 220, density: 0.06 },
+    { name: '卫生器具安装（坐便器）', unit: '组', basePrice: 280, density: 0.06 },
+    { name: '卫生器具安装（蹲便器）', unit: '组', basePrice: 200, density: 0.05 },
+    { name: '淋浴器安装', unit: '套', basePrice: 150, density: 0.04 },
+    { name: '地漏/清扫口安装', unit: '个', basePrice: 35, density: 0.12 },
+    { name: '水箱制作安装', unit: '套', basePrice: 3500, density: 0.02 },
+    { name: '变频供水设备', unit: '套', basePrice: 28000, density: 0.01 },
+    { name: '无负压供水设备', unit: '套', basePrice: 35000, density: 0.01 },
+    { name: '管道保温（橡塑）', unit: 'm³', basePrice: 480, density: 0.1 },
+    { name: '管道防腐（刷油）', unit: 'm²', basePrice: 12, density: 0.3 },
+    { name: '消火栓箱安装（薄型）', unit: '套', basePrice: 380, density: 0.04 },
+    { name: '室内消火栓管道', unit: 'm', basePrice: 22, density: 0.6 },
+    { name: '自动喷淋管道', unit: 'm', basePrice: 28, density: 0.7 },
+    { name: '湿式报警阀组', unit: '套', basePrice: 2800, density: 0.01 },
+    { name: '水流指示器', unit: '个', basePrice: 180, density: 0.03 },
+    { name: '喷头安装（闭式）', unit: '个', basePrice: 28, density: 0.4 }
+];
+
+const HVAC_CODES = ['安装-暖通-风管-01', '安装-暖通-风管-02', '安装-暖通-风口-03', '安装-暖通-设备-04', '安装-暖通-空调-05', '安装-暖通-采暖-06', '安装-暖通-保温-07', '安装-暖通-防腐-08'];
+const HVAC_ITEMS = [
+    { name: '镀锌钢板风管（矩形）', unit: 'm²', basePrice: 65, density: 1.2 },
+    { name: '镀锌钢板风管（圆形）', unit: 'm²', basePrice: 72, density: 0.8 },
+    { name: '螺旋风管', unit: 'm', basePrice: 48, density: 0.6 },
+    { name: '铝合金风口安装', unit: '个', basePrice: 85, density: 0.2 },
+    { name: '散流器安装', unit: '个', basePrice: 65, density: 0.15 },
+    { name: '百叶风口', unit: '个', basePrice: 55, density: 0.15 },
+    { name: '电动风口', unit: '个', basePrice: 280, density: 0.05 },
+    { name: '风机盘管（卧式暗装）', unit: '台', basePrice: 1800, density: 0.04 },
+    { name: '新风机组', unit: '台', basePrice: 12000, density: 0.01 },
+    { name: '空气处理机组（AHU）', unit: '台', basePrice: 35000, density: 0.008 },
+    { name: '多联机室内机', unit: '台', basePrice: 2200, density: 0.05 },
+    { name: '多联机室外机', unit: '台', basePrice: 8000, density: 0.02 },
+    { name: '分体壁挂机', unit: '台', basePrice: 1200, density: 0.03 },
+    { name: '分体柜机', unit: '台', basePrice: 2800, density: 0.02 },
+    { name: '恒温恒湿机组', unit: '台', basePrice: 45000, density: 0.005 },
+    { name: '洁净空调机组', unit: '台', basePrice: 65000, density: 0.005 },
+    { name: '送风机安装', unit: '台', basePrice: 1500, density: 0.03 },
+    { name: '排烟风机', unit: '台', basePrice: 2200, density: 0.03 },
+    { name: '正压送风机', unit: '台', basePrice: 1800, density: 0.02 },
+    { name: '补风机', unit: '台', basePrice: 1600, density: 0.02 },
+    { name: '排风兼排烟阀', unit: '个', basePrice: 180, density: 0.1 },
+    { name: '正压送风口', unit: '个', basePrice: 120, density: 0.08 },
+    { name: '软接头', unit: '个', basePrice: 45, density: 0.12 },
+    { name: '消声器安装', unit: '个', basePrice: 220, density: 0.05 },
+    { name: '管道保温（玻璃棉）', unit: 'm³', basePrice: 380, density: 0.15 },
+    { name: '管道保温（橡塑）', unit: 'm³', basePrice: 520, density: 0.12 },
+    { name: '采暖散热器（钢制）', unit: '组', basePrice: 180, density: 0.08 },
+    { name: '采暖散热器（铜铝）', unit: '组', basePrice: 220, density: 0.06 },
+    { name: '采暖管道', unit: 'm', basePrice: 20, density: 0.7 },
+    { name: '热量表安装', unit: '个', basePrice: 350, density: 0.02 },
+    { name: '分集水器', unit: '套', basePrice: 680, density: 0.02 },
+    { name: '地暖盘管', unit: 'm²', basePrice: 55, density: 0.5 }
+];
+
+const ELECTRIC_CODES = ['安装-电气-配管-01', '安装-电气-配线-02', '安装-电气-电缆-03', '安装-电气-配电-04', '安装-电气-照明-05', '安装-电气-防雷-06', '安装-电气-应急-07', '安装-电气-弱电-08'];
+const ELECTRIC_ITEMS = [
+    { name: '电气配管（PVC/KBG）', unit: 'm', basePrice: 8, density: 3.0 },
+    { name: '电气配管（SC焊接钢管）', unit: 'm', basePrice: 18, density: 1.5 },
+    { name: '电气配线（BV导线）', unit: 'm', basePrice: 3, density: 8.0 },
+    { name: '照明开关安装', unit: '个', basePrice: 18, density: 0.3 },
+    { name: '插座安装', unit: '个', basePrice: 22, density: 0.4 },
+    { name: '普通灯具安装', unit: '套', basePrice: 35, density: 0.3 },
+    { name: 'LED筒灯安装', unit: '套', basePrice: 65, density: 0.25 },
+    { name: 'LED平板灯安装', unit: '套', basePrice: 85, density: 0.2 },
+    { name: '应急照明灯', unit: '套', basePrice: 180, density: 0.1 },
+    { name: '疏散指示灯', unit: '套', basePrice: 120, density: 0.1 },
+    { name: '电缆桥架安装', unit: 'm', basePrice: 65, density: 0.6 },
+    { name: '电力电缆（YJV）', unit: 'm', basePrice: 45, density: 1.2 },
+    { name: '矿物绝缘电缆', unit: 'm', basePrice: 85, density: 0.5 },
+    { name: '低压配电柜', unit: '台', basePrice: 12000, density: 0.015 },
+    { name: '动力配电箱', unit: '台', basePrice: 3500, density: 0.03 },
+    { name: '照明配电箱', unit: '台', basePrice: 1800, density: 0.04 },
+    { name: 'EPS应急电源', unit: '套', basePrice: 8000, density: 0.008 },
+    { name: 'UPS不间断电源', unit: '套', basePrice: 12000, density: 0.005 },
+    { name: '柴油发电机', unit: '套', basePrice: 180000, density: 0.003 },
+    { name: '变压器安装', unit: '台', basePrice: 25000, density: 0.01 },
+    { name: '接地母线敷设', unit: 'm', basePrice: 12, density: 1.5 },
+    { name: '避雷针安装', unit: '根', basePrice: 280, density: 0.05 },
+    { name: '避雷网安装', unit: 'm', basePrice: 18, density: 0.8 },
+    { name: '引下线敷设', unit: 'm', basePrice: 15, density: 0.6 },
+    { name: '等电位联结', unit: '处', basePrice: 120, density: 0.15 },
+    { name: '消防报警主机', unit: '台', basePrice: 15000, density: 0.005 },
+    { name: '感烟探测器', unit: '个', basePrice: 85, density: 0.2 },
+    { name: '感温探测器', unit: '个', basePrice: 80, density: 0.1 },
+    { name: '手动报警按钮', unit: '个', basePrice: 120, density: 0.05 },
+    { name: '消防模块', unit: '个', basePrice: 150, density: 0.08 },
+    { name: '综合布线配线架', unit: '套', basePrice: 2200, density: 0.02 },
+    { name: '网络交换机', unit: '台', basePrice: 3500, density: 0.015 },
+    { name: '光纤熔接', unit: '点', basePrice: 35, density: 0.3 },
+    { name: '监控摄像机', unit: '台', basePrice: 680, density: 0.06 },
+    { name: '门禁系统', unit: '套', basePrice: 1200, density: 0.03 },
+    { name: '停车场系统', unit: '套', basePrice: 8000, density: 0.005 }
+];
+
+// 判断是否为地下建筑
+function isUnderground(name) {
+    return /地下|车库|设备用房|地下室/i.test(name);
+}
+
+function generateWaterList(buildings, indicator, regionFactor, extractedDevices) {
+    const totalArea = buildings.reduce((s, b) => s + b.area, 0);
+    const totalBudget = indicator.water.mid * totalArea * regionFactor;
+    
+    // 优先添加从Word提取的设备表设备
+    const deviceItems = [];
+    if (extractedDevices && extractedDevices.给排水 && extractedDevices.给排水.设备) {
+        extractedDevices.给排水.设备.forEach((eq, idx) => {
+            deviceItems.push({
+                name: eq,
+                unit: '套',
+                basePrice: 15000, // 设备默认单价，后续根据规格调整
+                isExtracted: true,
+                qty: 1
+            });
+        });
+    }
+    
+    // 基础清单项
+    const baseItems = WATER_ITEMS.slice(0, 10);
+    let remaining = totalBudget - deviceItems.length * 15000 * regionFactor;
+    if (remaining < 0) remaining = totalBudget * 0.5;
+    
+    const result = [];
+    
+    // 优先添加提取的设备
+    deviceItems.forEach((item, i) => {
+        result.push({
+            code: WATER_CODES[4], // 安装-给排水-设备-05
+            name: item.name,
+            unit: item.unit,
+            qty: '1',
+            unitPrice: item.basePrice * regionFactor,
+            amount: item.basePrice * regionFactor,
+            isExtracted: true
+        });
+    });
+    
+    // 添加基础清单项
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty, unitPrice, amount;
+        
+        if (i < baseItems.length - 1) {
+            qty = Math.round(totalArea * ratio * (0.8 + Math.random() * 0.4));
+            unitPrice = item.basePrice * regionFactor * (0.9 + Math.random() * 0.2);
+            amount = qty * unitPrice;
+        } else {
+            amount = remaining;
+            qty = Math.round(remaining / (item.basePrice * regionFactor));
+            unitPrice = item.basePrice * regionFactor;
+        }
+        remaining -= amount;
+        
+        result.push({
+            code: WATER_CODES[i % WATER_CODES.length],
+            name: item.name,
+            unit: item.unit,
+            qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100
+        });
+    });
+    
+    return result;
+}
+
+function generateHvacList(buildings, indicator, regionFactor, extractedDevices) {
+    const totalArea = buildings.reduce((s, b) => s + b.area, 0);
+    const totalBudget = indicator.hvac.mid * totalArea * regionFactor;
+    
+    // 优先添加从Word提取的设备表设备
+    const deviceItems = [];
+    if (extractedDevices && extractedDevices.暖通 && extractedDevices.暖通.设备) {
+        extractedDevices.暖通.设备.forEach((eq) => {
+            deviceItems.push({
+                name: eq,
+                unit: '台',
+                basePrice: 12000,
+                isExtracted: true
+            });
+        });
+    }
+    
+    // 基础清单项
+    const baseItems = HVAC_ITEMS.slice(0, 12);
+    let remaining = totalBudget - deviceItems.length * 12000 * regionFactor;
+    if (remaining < 0) remaining = totalBudget * 0.5;
+    
+    const result = [];
+    
+    // 优先添加提取的设备
+    deviceItems.forEach((item) => {
+        result.push({
+            code: HVAC_CODES[3], // 安装-暖通-设备-04
+            name: item.name,
+            unit: item.unit,
+            qty: '1',
+            unitPrice: item.basePrice * regionFactor,
+            amount: item.basePrice * regionFactor,
+            isExtracted: true
+        });
+    });
+    
+    // 添加基础清单项
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty, unitPrice, amount;
+        
+        if (i < baseItems.length - 1) {
+            qty = Math.round(totalArea * ratio * (0.8 + Math.random() * 0.4));
+            unitPrice = item.basePrice * regionFactor * (0.9 + Math.random() * 0.2);
+            amount = qty * unitPrice;
+        } else {
+            amount = remaining;
+            qty = Math.round(remaining / (item.basePrice * regionFactor));
+            unitPrice = item.basePrice * regionFactor;
+        }
+        remaining -= amount;
+        
+        result.push({
+            code: HVAC_CODES[i % HVAC_CODES.length],
+            name: item.name,
+            unit: item.unit,
+            qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100
+        });
+    });
+    
+    return result;
+}
+
+// 设备价格映射表（根据规格调整）
+const EQUIPMENT_PRICE_MAP = {
+    '变压器': { base: 45000, unit: '台' },
+    '高压开关柜': { base: 35000, unit: '面' },
+    '低压开关柜': { base: 28000, unit: '面' },
+    '直流屏': { base: 18000, unit: '面' },
+    '柴油发电机': { base: 180000, unit: '套' },
+    'EPS': { base: 12000, unit: '套' },
+    'UPS': { base: 15000, unit: '套' },
+    '应急照明': { base: 8500, unit: '套' },
+    '报警控制器': { base: 25000, unit: '套' },
+    '联动控制': { base: 18000, unit: '套' },
+    '探测器': { base: 120, unit: '个' },
+    '探测器': { base: 110, unit: '个' },
+    '消火栓': { base: 380, unit: '套' },
+    '加压泵': { base: 45000, unit: '套' },
+    '喷淋': { base: 38000, unit: '套' },
+    '水箱': { base: 25000, unit: '套' },
+    '射流': { base: 65000, unit: '套' },
+    '摄像机': { base: 850, unit: '台' },
+    '门禁': { base: 1500, unit: '套' }
+};
+
+function getEquipmentPrice(name) {
+    for (const [key, value] of Object.entries(EQUIPMENT_PRICE_MAP)) {
+        if (name.includes(key)) {
+            return value.base;
+        }
+    }
+    return 15000; // 默认设备价格
+}
+
+function generateElectricList(buildings, indicator, regionFactor, extractedDevices) {
+    const totalArea = buildings.reduce((s, b) => s + b.area, 0);
+    const totalBudget = indicator.electric.mid * totalArea * regionFactor;
+    
+    // 优先添加从Word提取的设备表设备（电气专业最重要）
+    const deviceItems = [];
+    if (extractedDevices && extractedDevices.电气 && extractedDevices.电气.设备) {
+        extractedDevices.电气.设备.forEach((eq) => {
+            const price = getEquipmentPrice(eq);
+            deviceItems.push({
+                name: eq,
+                unit: EQUIPMENT_PRICE_MAP[Object.keys(EQUIPMENT_PRICE_MAP).find(k => eq.includes(k))]?.unit || '台',
+                basePrice: price,
+                isExtracted: true
+            });
+        });
+    }
+    
+    // 基础清单项（配电、照明、防雷）
+    const baseItems = ELECTRIC_ITEMS.filter(item => 
+        item.name.includes('配电') || item.name.includes('照明') || 
+        item.name.includes('桥架') || item.name.includes('电缆') || 
+        item.name.includes('配管') || item.name.includes('配线') ||
+        item.name.includes('防雷') || item.name.includes('接地')
+    ).slice(0, 12);
+    
+    let remaining = totalBudget - deviceItems.reduce((s, d) => s + d.basePrice * regionFactor, 0);
+    if (remaining < 0) remaining = totalBudget * 0.5;
+    
+    const result = [];
+    
+    // 优先添加提取的设备（标注为"主要设备"）
+    deviceItems.forEach((item) => {
+        result.push({
+            code: ELECTRIC_CODES[3], // 安装-电气-配电-04
+            name: `【主要设备】${item.name}`,
+            unit: item.unit,
+            qty: '1',
+            unitPrice: item.basePrice * regionFactor,
+            amount: item.basePrice * regionFactor,
+            isExtracted: true
+        });
+    });
+    
+    // 添加基础清单项
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty, unitPrice, amount;
+        
+        if (i < baseItems.length - 1) {
+            qty = Math.round(totalArea * ratio * (0.8 + Math.random() * 0.4));
+            unitPrice = item.basePrice * regionFactor * (0.9 + Math.random() * 0.2);
+            amount = qty * unitPrice;
+        } else {
+            amount = remaining;
+            qty = Math.round(remaining / (item.basePrice * regionFactor));
+            unitPrice = item.basePrice * regionFactor;
+        }
+        remaining -= amount;
+        
+        result.push({
+            code: ELECTRIC_CODES[i % ELECTRIC_CODES.length],
+            name: item.name,
+            unit: item.unit,
+            qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100
+        });
+    });
+    
+    return result;
+}
+
+// 消防清单生成函数
+const FIRE_CODES = ['安装-消防-喷淋-01', '安装-消防-消火栓-02', '安装-消防-报警-03', '安装-消防-气体-04', '安装-消防-灭火-05', '安装-消防-防排烟-06', '安装-消防-设备-07'];
+const FIRE_ITEMS = [
+    { name: '室内消火栓管道', unit: 'm', basePrice: 22, density: 0.8 },
+    { name: '室内消火栓箱安装', unit: '套', basePrice: 380, density: 0.05 },
+    { name: '自动喷淋管道', unit: 'm', basePrice: 28, density: 1.0 },
+    { name: '湿式报警阀组', unit: '套', basePrice: 2800, density: 0.01 },
+    { name: '水流指示器', unit: '个', basePrice: 180, density: 0.03 },
+    { name: '信号蝶阀', unit: '个', basePrice: 320, density: 0.04 },
+    { name: '闭式喷头安装', unit: '个', basePrice: 28, density: 0.6 },
+    { name: '火灾报警控制器', unit: '台', basePrice: 15000, density: 0.005 },
+    { name: '联动控制柜', unit: '台', basePrice: 12000, density: 0.005 },
+    { name: '感烟探测器', unit: '个', basePrice: 85, density: 0.25 },
+    { name: '感温探测器', unit: '个', basePrice: 80, density: 0.15 },
+    { name: '手动报警按钮', unit: '个', basePrice: 120, density: 0.05 },
+    { name: '声光警报器', unit: '个', basePrice: 150, density: 0.05 },
+    { name: '消防模块', unit: '个', basePrice: 150, density: 0.1 },
+    { name: '消防电话', unit: '套', basePrice: 2800, density: 0.01 },
+    { name: '消防广播', unit: '套', basePrice: 3500, density: 0.01 },
+    { name: '排烟风机', unit: '台', basePrice: 2200, density: 0.02 },
+    { name: '正压送风机', unit: '台', basePrice: 1800, density: 0.02 },
+    { name: '挡烟垂壁', unit: 'm', basePrice: 85, density: 0.15 },
+    { name: '防火卷帘', unit: '樘', basePrice: 3500, density: 0.02 },
+    { name: '灭火器箱', unit: '组', basePrice: 120, density: 0.08 },
+    { name: '消防水炮', unit: '台', basePrice: 12000, density: 0.01 }
+];
+
+function generateFireList(buildings, indicator, regionFactor, extractedDevices) {
+    const totalArea = buildings.reduce((s, b) => s + b.area, 0);
+    const totalBudget = (indicator.fire?.mid || 35) * totalArea * regionFactor;
+    
+    // 优先添加从Word提取的设备表设备
+    const deviceItems = [];
+    if (extractedDevices && extractedDevices.消防 && extractedDevices.消防.设备) {
+        extractedDevices.消防.设备.forEach((eq) => {
+            const price = getEquipmentPrice(eq);
+            deviceItems.push({
+                name: eq,
+                unit: EQUIPMENT_PRICE_MAP[Object.keys(EQUIPMENT_PRICE_MAP).find(k => eq.includes(k))]?.unit || '套',
+                basePrice: price,
+                isExtracted: true
+            });
+        });
+    }
+    
+    // 基础清单项
+    const baseItems = FIRE_ITEMS.slice(0, 12);
+    let remaining = totalBudget - deviceItems.reduce((s, d) => s + d.basePrice * regionFactor, 0);
+    if (remaining < 0) remaining = totalBudget * 0.5;
+    
+    const result = [];
+    
+    // 优先添加提取的设备
+    deviceItems.forEach((item) => {
+        result.push({
+            code: FIRE_CODES[6], // 安装-消防-设备-07
+            name: `【主要设备】${item.name}`,
+            unit: item.unit,
+            qty: '1',
+            unitPrice: item.basePrice * regionFactor,
+            amount: item.basePrice * regionFactor,
+            isExtracted: true
+        });
+    });
+    
+    // 添加基础清单项
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty, unitPrice, amount;
+        
+        if (i < baseItems.length - 1) {
+            qty = Math.round(totalArea * ratio * (0.8 + Math.random() * 0.4));
+            unitPrice = item.basePrice * regionFactor * (0.9 + Math.random() * 0.2);
+            amount = qty * unitPrice;
+        } else {
+            amount = remaining;
+            qty = Math.round(remaining / (item.basePrice * regionFactor));
+            unitPrice = item.basePrice * regionFactor;
+        }
+        remaining -= amount;
+        
+        result.push({
+            code: FIRE_CODES[i % FIRE_CODES.length],
+            name: item.name,
+            unit: item.unit,
+            qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100
+        });
+    });
+    
+    return result;
+}
+
+// 弱电清单生成函数
+const WEAK_ELEC_CODES = ['安装-弱电-综合布线-01', '安装-弱电-网络-02', '安装-弱电-安防-03', '安装-弱电-广播-04', '安装-弱电-会议-05', '安装-弱电-信息-06', '安装-弱电-设备-07'];
+const WEAK_ELEC_ITEMS = [
+    { name: '综合布线配线架', unit: '套', basePrice: 2200, density: 0.02 },
+    { name: '网络交换机', unit: '台', basePrice: 3500, density: 0.02 },
+    { name: '光纤熔接', unit: '点', basePrice: 35, density: 0.4 },
+    { name: '超六类网线', unit: 'm', basePrice: 4, density: 2.5 },
+    { name: '光纤跳线', unit: '根', basePrice: 45, density: 0.15 },
+    { name: '监控摄像机', unit: '台', basePrice: 680, density: 0.08 },
+    { name: '硬盘录像机', unit: '台', basePrice: 4500, density: 0.01 },
+    { name: '监控硬盘', unit: '块', basePrice: 800, density: 0.03 },
+    { name: '监控显示器', unit: '台', basePrice: 1800, density: 0.01 },
+    { name: '门禁控制器', unit: '台', basePrice: 2800, density: 0.02 },
+    { name: '出门按钮', unit: '个', basePrice: 35, density: 0.05 },
+    { name: '电锁', unit: '把', basePrice: 180, density: 0.05 },
+    { name: '停车场系统', unit: '套', basePrice: 8000, density: 0.005 },
+    { name: '道闸', unit: '套', basePrice: 3500, density: 0.01 },
+    { name: '公共广播音箱', unit: '只', basePrice: 180, density: 0.08 },
+    { name: '广播功放', unit: '台', basePrice: 2200, density: 0.01 },
+    { name: '多媒体讲台', unit: '套', basePrice: 3500, density: 0.02 },
+    { name: '投影仪', unit: '台', basePrice: 6500, density: 0.01 },
+    { name: 'LED显示屏', unit: '㎡', basePrice: 2800, density: 0.02 },
+    { name: '信息引导屏', unit: '套', basePrice: 4500, density: 0.01 },
+    { name: '电子巡查', unit: '套', basePrice: 1800, density: 0.005 },
+    { name: '能耗计量表', unit: '块', basePrice: 450, density: 0.05 }
+];
+
+function generateWeakElecList(buildings, indicator, regionFactor, extractedDevices) {
+    const totalArea = buildings.reduce((s, b) => s + b.area, 0);
+    const totalBudget = (indicator.弱电?.mid || 45) * totalArea * regionFactor;
+    
+    // 优先添加从Word提取的设备表设备
+    const deviceItems = [];
+    if (extractedDevices && extractedDevices.弱电 && extractedDevices.弱电.设备) {
+        extractedDevices.弱电.设备.forEach((eq) => {
+            const price = getEquipmentPrice(eq);
+            deviceItems.push({
+                name: eq,
+                unit: EQUIPMENT_PRICE_MAP[Object.keys(EQUIPMENT_PRICE_MAP).find(k => eq.includes(k))]?.unit || '套',
+                basePrice: price,
+                isExtracted: true
+            });
+        });
+    }
+    
+    // 基础清单项
+    const baseItems = WEAK_ELEC_ITEMS.slice(0, 12);
+    let remaining = totalBudget - deviceItems.reduce((s, d) => s + d.basePrice * regionFactor, 0);
+    if (remaining < 0) remaining = totalBudget * 0.5;
+    
+    const result = [];
+    
+    // 优先添加提取的设备
+    deviceItems.forEach((item) => {
+        result.push({
+            code: WEAK_ELEC_CODES[6], // 安装-弱电-设备-07
+            name: `【主要设备】${item.name}`,
+            unit: item.unit,
+            qty: '1',
+            unitPrice: item.basePrice * regionFactor,
+            amount: item.basePrice * regionFactor,
+            isExtracted: true
+        });
+    });
+    
+    // 添加基础清单项
+    baseItems.forEach((item, i) => {
+        const ratio = item.density / baseItems.reduce((s, it) => s + it.density, 0);
+        let qty, unitPrice, amount;
+        
+        if (i < baseItems.length - 1) {
+            qty = Math.round(totalArea * ratio * (0.8 + Math.random() * 0.4));
+            unitPrice = item.basePrice * regionFactor * (0.9 + Math.random() * 0.2);
+            amount = qty * unitPrice;
+        } else {
+            amount = remaining;
+            qty = Math.round(remaining / (item.basePrice * regionFactor));
+            unitPrice = item.basePrice * regionFactor;
+        }
+        remaining -= amount;
+        
+        result.push({
+            code: WEAK_ELEC_CODES[i % WEAK_ELEC_CODES.length],
+            name: item.name,
+            unit: item.unit,
+            qty: qty.toLocaleString(),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            amount: Math.round(amount * 100) / 100
+        });
+    });
+    
+    return result;
+}
+
+// ========== 表格渲染 ==========
+function renderTables() {
+    if (!generatedData) return;
+    
+    renderTable('waterTableBody', generatedData.water.list, generatedData.water.total, generatedData.totalArea, 'water');
+    renderTable('hvacTableBody', generatedData.hvac.list, generatedData.hvac.total, generatedData.totalArea, 'hvac');
+    renderTable('electricTableBody', generatedData.electric.list, generatedData.electric.total, generatedData.totalArea, 'electric');
+    // 渲染消防表格
+    if (document.getElementById('fireTableBody')) {
+        renderTable('fireTableBody', generatedData.fire.list, generatedData.fire.total, generatedData.totalArea, 'fire');
+    }
+    // 渲染弱电表格
+    if (document.getElementById('weakElecTableBody')) {
+        renderTable('weakElecTableBody', generatedData.弱电系统.list, generatedData.弱电系统.total, generatedData.totalArea, '弱电');
+    }
+}
+
+function renderTable(tbodyId, items, total, totalArea, type) {
+    const tbody = document.getElementById(tbodyId);
+    let html = '';
+    let runningTotal = 0;
+    
+    items.forEach((item, i) => {
+        runningTotal += item.amount;
+        html += `<tr>
+            <td>${i + 1}</td>
+            <td><code>${item.code}</code></td>
+            <td>${item.name}</td>
+            <td>${item.unit}</td>
+            <td>${item.qty}</td>
+            <td>${item.unitPrice.toLocaleString()}</td>
+            <td>${item.amount.toLocaleString()}</td>
+            <td>-</td>
+        </tr>`;
+    });
+    
+    html += `<tr class="total-row">
+        <td colspan="5"><strong>合计</strong></td>
+        <td>-</td>
+        <td><strong>${total.toLocaleString()}</strong></td>
+        <td>-</td>
+    </tr>`;
+    
+    tbody.innerHTML = html;
+    
+    // 更新汇总卡片
+    const costPerSqm = document.getElementById(type + 'CostPerSqm');
+    const costRatio = document.getElementById(type + 'CostRatio');
+    if (costPerSqm) costPerSqm.textContent = (total / totalArea).toFixed(2) + ' 元/㎡';
+    if (costRatio) costRatio.textContent = ((total / generatedData.grandTotal) * 100).toFixed(1) + '%';
+    
+    document.getElementById(type + 'CostSummary').style.display = 'flex';
+    document.getElementById(type + 'TotalArea').textContent = '总建筑面积：' + totalArea.toLocaleString() + '㎡';
+    document.getElementById(type + 'TotalCost').textContent = '估算总价：' + (total/10000).toFixed(2) + '万元';
+}
+
+// ========== 汇总页渲染 ==========
+function renderSummary() {
+    if (!generatedData) return;
+    const { businessType, buildings, totalArea, grandTotal, water, hvac, electric, fire, 弱电系统 } = generatedData;
+    
+    const fireTotal = fire?.total || 0;
+    const weakElecTotal = 弱电系统?.total || 0;
+    
+    document.getElementById('summaryProjectName').textContent = document.getElementById('projectName').value || '未命名项目';
+    document.getElementById('summaryBusinessType').textContent = businessType;
+    document.getElementById('summaryBuildingCount').textContent = buildings.length + ' 栋';
+    document.getElementById('summaryTotalArea').textContent = totalArea.toLocaleString() + ' ㎡';
+    document.getElementById('summaryTotalCost').textContent = (grandTotal / 10000).toFixed(2) + ' 万元';
+    document.getElementById('summaryCostPerSqm').textContent = (grandTotal / totalArea).toFixed(2) + ' 元/㎡';
+    
+    // 栋号汇总表（5专业）
+    const btbody = document.getElementById('buildingSummaryBody');
+    let bhtml = '';
+    buildings.forEach(b => {
+        const waterCost = (water.total * b.area / totalArea);
+        const hvacCost = (hvac.total * b.area / totalArea);
+        const elecCost = (electric.total * b.area / totalArea);
+        const fireCost = (fireTotal * b.area / totalArea);
+        const weakElecCost = (weakElecTotal * b.area / totalArea);
+        const subTotal = waterCost + hvacCost + elecCost + fireCost + weakElecCost;
+        bhtml += `<tr>
+            <td>${b.name}</td>
+            <td>${b.area.toLocaleString()}</td>
+            <td>${(waterCost / b.area).toFixed(2)}</td>
+            <td>${(hvacCost / b.area).toFixed(2)}</td>
+            <td>${(elecCost / b.area).toFixed(2)}</td>
+            <td>${(fireCost / b.area).toFixed(2)}</td>
+            <td>${(weakElecCost / b.area).toFixed(2)}</td>
+            <td><strong>${(subTotal / b.area).toFixed(2)}</strong></td>
+            <td>${(subTotal / 10000).toFixed(2)}</td>
+        </tr>`;
+    });
+    bhtml += `<tr class="total-row">
+        <td><strong>合计</strong></td>
+        <td><strong>${totalArea.toLocaleString()}</strong></td>
+        <td><strong>${(water.total / totalArea).toFixed(2)}</strong></td>
+        <td><strong>${(hvac.total / totalArea).toFixed(2)}</strong></td>
+        <td><strong>${(electric.total / totalArea).toFixed(2)}</strong></td>
+        <td><strong>${(fireTotal / totalArea).toFixed(2)}</strong></td>
+        <td><strong>${(weakElecTotal / totalArea).toFixed(2)}</strong></td>
+        <td><strong>${(grandTotal / totalArea).toFixed(2)}</strong></td>
+        <td><strong>${(grandTotal / 10000).toFixed(2)}</strong></td>
+    </tr>`;
+    btbody.innerHTML = bhtml;
+    
+    // 专业汇总表（5专业）
+    const stbody = document.getElementById('specSummaryBody');
+    const specs = [
+        { name: '给排水工程', total: water.total, perSqm: water.total / totalArea, ratio: water.total / grandTotal },
+        { name: '暖通工程', total: hvac.total, perSqm: hvac.total / totalArea, ratio: hvac.total / grandTotal },
+        { name: '电气工程', total: electric.total, perSqm: electric.total / totalArea, ratio: electric.total / grandTotal },
+        { name: '消防工程', total: fireTotal, perSqm: fireTotal / totalArea, ratio: fireTotal / grandTotal },
+        { name: '弱电工程', total: weakElecTotal, perSqm: weakElecTotal / totalArea, ratio: weakElecTotal / grandTotal }
+    ];
+    stbody.innerHTML = specs.map(s => `<tr>
+        <td>${s.name}</td>
+        <td>${(s.total / 10000).toFixed(2)} 万元</td>
+        <td>${s.perSqm.toFixed(2)} 元/㎡</td>
+        <td>${(s.ratio * 100).toFixed(1)}%</td>
+    </tr>`).join('') + `<tr class="total-row">
+        <td><strong>安装总计</strong></td>
+        <td><strong>${(grandTotal / 10000).toFixed(2)} 万元</strong></td>
+        <td><strong>${(grandTotal / totalArea).toFixed(2)} 元/㎡</strong></td>
+        <td><strong>100%</strong></td>
+    </tr>`;
+    
+    // 饼图（5专业）
+    renderPieChart(water.total, hvac.total, electric.total, fireTotal, weakElecTotal);
+}
+
+function updateSummaryHeader() {
+    if (!generatedData) return;
+    // 已在renderSummary中更新
+}
+
+function renderPieChart(waterTotal, hvacTotal, electricTotal, fireTotal, weakElecTotal) {
+    const total = waterTotal + hvacTotal + electricTotal + fireTotal + weakElecTotal;
+    
+    document.getElementById('legendWater').textContent = (waterTotal / 10000).toFixed(1) + '万 (' + (waterTotal/total*100).toFixed(0) + '%)';
+    document.getElementById('legendHvac').textContent = (hvacTotal / 10000).toFixed(1) + '万 (' + (hvacTotal/total*100).toFixed(0) + '%)';
+    document.getElementById('legendElectric').textContent = (electricTotal / 10000).toFixed(1) + '万 (' + (electricTotal/total*100).toFixed(0) + '%)';
+    
+    // 添加消防和弱电图例
+    let legendFire = document.getElementById('legendFire');
+    let legendWeakElec = document.getElementById('legendWeakElec');
+    if (!legendFire) {
+        legendFire = document.createElement('div');
+        legendFire.id = 'legendFire';
+        legendFire.className = 'legend-item';
+        document.querySelector('.chart-legend')?.appendChild(legendFire);
+    }
+    if (!legendWeakElec) {
+        legendWeakElec = document.createElement('div');
+        legendWeakElec.id = 'legendWeakElec';
+        legendWeakElec.className = 'legend-item';
+        document.querySelector('.chart-legend')?.appendChild(legendWeakElec);
+    }
+    if (legendFire) legendFire.innerHTML = `<span class="legend-color" style="background:#ff9f43"></span><span class="legend-label">消防</span><span class="legend-value">${(fireTotal / 10000).toFixed(1)}万 (${(fireTotal/total*100).toFixed(0)}%)</span>`;
+    if (legendWeakElec) legendWeakElec.innerHTML = `<span class="legend-color" style="background:#54a0ff"></span><span class="legend-label">弱电</span><span class="legend-value">${(weakElecTotal / 10000).toFixed(1)}万 (${(weakElecTotal/total*100).toFixed(0)}%)</span>`;
+    
+    document.getElementById('chartPlaceholder').style.display = 'none';
+    document.getElementById('pieChart').style.display = 'flex';
+    
+    const canvas = document.getElementById('pieCanvas');
+    const ctx = canvas.getContext('2d');
+    const cx = canvas.width / 2, cy = canvas.height / 2, r = 80;
+    
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const data = [waterTotal, hvacTotal, electricTotal, fireTotal, weakElecTotal];
+    const colors = ['#1a5e63', '#4ecdc4', '#ff6b6b', '#ff9f43', '#54a0ff'];
+    let startAngle = -Math.PI / 2;
+    
+    data.forEach((val, i) => {
+        const slice = (val / total) * 2 * Math.PI;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.arc(cx, cy, r, startAngle, startAngle + slice);
+        ctx.closePath();
+        ctx.fillStyle = colors[i];
+        ctx.fill();
+        startAngle += slice;
+    });
+    
+    // 中心白色
+    ctx.beginPath();
+    ctx.arc(cx, cy, r * 0.5, 0, 2 * Math.PI);
+    ctx.fillStyle = 'white';
+    ctx.fill();
+    
+    ctx.fillStyle = '#333';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText((total/10000).toFixed(1) + '万', cx, cy - 6);
+    ctx.font = '11px sans-serif';
+    ctx.fillStyle = '#666';
+    ctx.fillText('安装总价', cx, cy + 10);
+}
+
+// ========== Excel导出 ==========
+function exportToExcel(type) {
+    if (!generatedData) {
+        showModal('提示', '请先生成估算概算', [{ text: '确定', class: 'btn-primary', onClick: closeModal }]);
+        return;
+    }
+    
+    const specNames = { water: '给排水工程', hvac: '暖通工程', electric: '电气工程', fire: '消防工程', weakElec: '弱电工程' };
+    const specDataKey = type === 'weakElec' ? '弱电系统' : type;
+    const specData = generatedData[specDataKey];
+    
+    if (!specData) {
+        showModal('提示', '该专业暂无数据', [{ text: '确定', class: 'btn-primary', onClick: closeModal }]);
+        return;
+    }
+    
+    const wsData = [
+        [document.getElementById('projectName').value || '未命名项目'] + Array(7).fill(''),
+        [`${specNames[type]}模拟清单`] + Array(7).fill(''),
+        ['序号', '清单编码', '清单名称', '单位', '工程量', '综合单价(元)', '合价(元)', '备注'],
+        ...specData.list.map((item, i) => [
+            i + 1, item.code, item.name, item.unit, item.qty, item.unitPrice, item.amount, ''
+        ]),
+        ['合计', '', '', '', '', '', specData.total, '']
+    ];
+    
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, specNames[type]);
+    
+    const fileName = `${document.getElementById('projectName').value || '项目'}_${specNames[type]}_模拟清单.xlsx`;
+    XLSX.writeFile(wb, fileName);
+}
+
+function exportAllToExcel() {
+    if (!generatedData) {
+        showModal('提示', '请先生成估算概算', [{ text: '确定', class: 'btn-primary', onClick: closeModal }]);
+        return;
+    }
+    
+    const projectName = document.getElementById('projectName').value || '未命名项目';
+    const businessType = generatedData.businessType;
+    const totalArea = generatedData.totalArea;
+    const regionFactor = generatedData.regionFactor;
+    const grandTotal = generatedData.grandTotal;
+    
+    const wb = XLSX.utils.book_new();
+    
+    // 获取栋号信息
+    const buildingList = document.querySelectorAll('.building-item');
+    const buildings = [];
+    buildingList.forEach((b, i) => {
+        const name = b.querySelector('.building-name-input')?.value || `栋号${i+1}`;
+        const area = parseInt(b.querySelector('.building-area-input')?.value) || 0;
+        if (name && area > 0) {
+            buildings.push({ name, area, index: i });
+        }
+    });
+    
+    // Sheet1: 汇总
+    const summaryData = [
+        [projectName + ' 安装工程估算概算'],
+        [],
+        ['项目业态', businessType],
+        ['地区系数', regionFactor],
+        ['总建筑面积(㎡)', totalArea],
+        ['安装总估算价(万元)', (grandTotal / 10000).toFixed(2)],
+        ['综合单方造价(元/㎡)', (grandTotal / totalArea).toFixed(2)],
+        [],
+        ['=== 各栋号指标 ==='],
+        [],
+        ['栋号', '栋号名称', '建筑面积(㎡)', '给排水(元/㎡)', '暖通(元/㎡)', '电气(元/㎡)', '弱电(元/㎡)', '消防(元/㎡)', '小计(元/㎡)', '估算价(万元)'],
+        ...buildings.map(b => {
+            const ratio = b.area / totalArea;
+            const wc = generatedData.water?.total * ratio || 0;
+            const hc = generatedData.hvac?.total * ratio || 0;
+            const ec = generatedData.electric?.total * ratio || 0;
+            const rc = (generatedData.弱电?.total || generatedData.弱电系统?.total || 0) * ratio;
+            const fc = (generatedData.fire?.total || 0) * ratio;
+            const subtotal = wc + hc + ec + rc + fc;
+            return [b.index === 0 ? 'A栋' : b.index === 1 ? 'B栋' : `栋号${b.index+1}`, b.name, b.area, 
+                (wc/b.area).toFixed(2), (hc/b.area).toFixed(2), (ec/b.area).toFixed(2),
+                (rc/b.area).toFixed(2), (fc/b.area).toFixed(2),
+                (subtotal/b.area).toFixed(2), (subtotal/10000).toFixed(2)];
+        }),
+        ['合计', '', totalArea, '', '', '', '', '', '', (grandTotal/10000).toFixed(2)],
+        [],
+        ['=== 各专业汇总 ==='],
+        [],
+        ['专业', '估算价(万元)', '单方造价(元/㎡)', '占比'],
+        ['给排水工程', (generatedData.water?.total / 10000).toFixed(2), (generatedData.water?.total / totalArea).toFixed(2), (generatedData.water?.total / grandTotal * 100).toFixed(1) + '%'],
+        ['暖通工程', (generatedData.hvac?.total / 10000).toFixed(2), (generatedData.hvac?.total / totalArea).toFixed(2), (generatedData.hvac?.total / grandTotal * 100).toFixed(1) + '%'],
+        ['电气工程', (generatedData.electric?.total / 10000).toFixed(2), (generatedData.electric?.total / totalArea).toFixed(2), (generatedData.electric?.total / grandTotal * 100).toFixed(1) + '%'],
+        ['弱电工程', ((generatedData.弱电?.total || generatedData.弱电系统?.total || 0) / 10000).toFixed(2), ((generatedData.弱电?.total || generatedData.弱电系统?.total || 0) / totalArea).toFixed(2), ((generatedData.弱电?.total || generatedData.弱电系统?.total || 0) / grandTotal * 100).toFixed(1) + '%'],
+        ['消防工程', (generatedData.fire?.total / 10000).toFixed(2), (generatedData.fire?.total / totalArea).toFixed(2), (generatedData.fire?.total / grandTotal * 100).toFixed(1) + '%'],
+        ['合计', (grandTotal / 10000).toFixed(2), (grandTotal / totalArea).toFixed(2), '100%']
+    ];
+    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+    XLSX.utils.book_append_sheet(wb, wsSummary, '指标汇总');
+    
+    // 栋号映射
+    const buildingMap = {};
+    buildings.forEach((b, i) => {
+        buildingMap[i] = b.index === 0 ? 'A栋-教学楼' : b.index === 1 ? 'B栋-地下车库' : `栋号${i+1}`;
+    });
+    
+    // Sheet2-6: 各专业按栋号划分的清单
+    const specs = [
+        { key: 'water', name: '给排水' },
+        { key: 'hvac', name: '暖通' },
+        { key: 'electric', name: '电气' },
+        { key: '弱电系统', name: '弱电' },
+        { key: 'fire', name: '消防' }
+    ];
+    
+    specs.forEach(spec => {
+        if (!generatedData[spec.key]) return;
+        
+        const specData = generatedData[spec.key];
+        const sheetData = [];
+        
+        // 添加专业标题
+        sheetData.push([`${spec.name}工程模拟清单`]);
+        sheetData.push([]);
+        
+        // 按栋号生成清单
+        buildings.forEach((b, i) => {
+            const ratio = b.area / totalArea;
+            const buildingTotal = specData.total * ratio;
+            const label = buildingMap[i] || `栋号${i+1}`;
+            
+            sheetData.push([`【${label}】 - ${b.name} - ${b.area}㎡`]);
+            sheetData.push(['序号', '清单编码', '清单名称', '单位', '工程量', '综合单价(元)', '合价(元)', '备注']);
+            
+            // 按栋号比例分配清单工程量
+            const buildingList = specData.list.map(item => {
+                const newItem = { ...item };
+                newItem.qty = Math.round(item.qty * ratio * 100) / 100;
+                newItem.amount = Math.round(item.amount * ratio * 100) / 100;
+                return newItem;
+            });
+            
+            buildingList.forEach((item, idx) => {
+                sheetData.push([
+                    idx + 1, item.code || '', item.name || '', item.unit || '', 
+                    item.qty || 0, item.unitPrice || 0, item.amount || 0, ''
+                ]);
+            });
+            
+            sheetData.push(['', '', '小计', '', '', '', Math.round(buildingTotal * 100) / 100, '']);
+            sheetData.push([]);
+        });
+        
+        // 合计行
+        sheetData.push(['', '', '总计', '', '', '', specData.total, '']);
+        
+        const ws = XLSX.utils.aoa_to_sheet(sheetData);
+        XLSX.utils.book_append_sheet(wb, ws, spec.name + '清单');
+    });
+    
+    XLSX.writeFile(wb, `${projectName}_安装估算概算.xlsx`);
+}
+
+// ========== 重置 ==========
+function resetProject() {
+    showModal('确认重置', '确定要清空所有输入数据吗？', [
+        { text: '取消', class: 'btn-secondary', onClick: closeModal },
+        { text: '确认重置', class: 'btn-danger', onClick: () => {
+            document.querySelectorAll('#section-info input, #section-info select').forEach(el => {
+                if (el.type === 'checkbox') el.checked = false;
+                else el.value = '';
+            });
+            document.getElementById('indicatorPreview').querySelector('.preview-value').textContent = '选择业态后显示';
+            generatedData = null;
+            ['waterTableBody', 'hvacTableBody', 'electricTableBody', 'fireTableBody', 'weakElecTableBody', 'buildingSummaryBody', 'specSummaryBody'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = '<tr><td colspan="8" class="empty-state"><i class="fas fa-inbox"></i> 请先生成估算概算</td></tr>';
+            });
+            document.querySelectorAll('.cost-summary').forEach(el => el.style.display = 'none');
+            document.getElementById('chartPlaceholder').style.display = 'flex';
+            document.getElementById('pieChart').style.display = 'none';
+            document.querySelectorAll('.indicator-tag').forEach(el => {
+                if (el.id.includes('TotalArea')) el.textContent = '总建筑面积：-';
+                else if (el.id.includes('TotalCost')) el.textContent = '估算总价：-';
+            });
+            document.getElementById('uploadStatus').style.display = 'none';
+            document.getElementById('processSteps').style.display = 'none';
+            document.getElementById('step1').className = 'step';
+            document.getElementById('step2').className = 'step';
+            document.getElementById('step3').className = 'step';
+            document.getElementById('step4').className = 'step';
+            extractedProjectInfo = null;
+            closeModal();
+        }}
+    ]);
+}
+
+// ========== 模态框 ==========
+function showModal(title, body, buttons) {
+    document.getElementById('modalTitle').textContent = title;
+    document.getElementById('modalBody').innerHTML = body;
+    const footer = document.getElementById('modalFooter');
+    footer.innerHTML = '';
+    (buttons || []).forEach(btn => {
+        const b = document.createElement('button');
+        b.className = btn.class;
+        b.textContent = btn.text;
+        if (btn.onClick) b.onclick = btn.onClick;
+        footer.appendChild(b);
+    });
+    document.getElementById('modal').style.display = 'flex';
+}
+
+function closeModal() {
+    document.getElementById('modal').style.display = 'none';
+}
+
+// ========== 清单按栋号生成模块 ==========
+// 栋号定义：A栋=综合教学楼(地上), B栋=地下车库(地下室独立)
+// 清单结构：每个栋号独立列举5专业清单
+
+</script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </body>
 </html>
