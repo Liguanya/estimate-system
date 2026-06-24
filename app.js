@@ -30,11 +30,23 @@ document.addEventListener('DOMContentLoaded', function() {
     initNavigation();
     initDragDrop();
     loadHuayuanProjectData();
+    
+    // 延迟500ms再次检查登录状态，确保初始化完成
+    setTimeout(function() {
+        if (!loginPage || !mainPage) {
+            console.warn('DOM元素可能未加载完成，重新获取...');
+            loginPage = document.getElementById('loginPage');
+            mainPage = document.getElementById('mainPage');
+            initLoginForm();
+            checkLoginStatus();
+        }
+    }, 500);
 });
 
 function checkLoginStatus() {
     const isLoggedIn = localStorage.getItem('estimateSystemLoggedIn');
     const userData = localStorage.getItem('estimateSystemUser');
+    console.log('检查登录状态:', isLoggedIn, userData ? '有用户数据' : '无用户数据');
     if (isLoggedIn === 'true' && userData) {
         showMainPage(JSON.parse(userData));
     } else {
@@ -43,38 +55,56 @@ function checkLoginStatus() {
 }
 
 function showLoginPage() {
-    loginPage.style.display = 'flex';
-    mainPage.style.display = 'none';
+    const lp = document.getElementById('loginPage');
+    const mp = document.getElementById('mainPage');
+    if (lp) lp.style.display = 'flex';
+    if (mp) mp.style.display = 'none';
 }
 
 function showMainPage(user) {
-    loginPage.style.display = 'none';
-    mainPage.style.display = 'flex';
-    currentUserSpan.textContent = user.displayName;
+    const lp = document.getElementById('loginPage');
+    const mp = document.getElementById('mainPage');
+    const userSpan = document.getElementById('currentUser');
+    if (lp) lp.style.display = 'none';
+    if (mp) mp.style.display = 'flex';
+    if (userSpan) userSpan.textContent = user.displayName;
+    console.log('登录成功:', user.displayName);
 }
 
 // 登录表单提交
 function initLoginForm() {
-    if (loginForm) {
-        loginForm.addEventListener('submit', function(e) {
+    const form = document.getElementById('loginForm');
+    const userInput = document.getElementById('username');
+    const pwdInput = document.getElementById('password');
+    const errMsg = document.getElementById('errorMessage');
+    
+    if (form) {
+        // 移除旧的事件监听器（防止重复绑定）
+        const newForm = form.cloneNode(true);
+        form.parentNode.replaceChild(newForm, form);
+        
+        newForm.addEventListener('submit', function(e) {
             e.preventDefault();
-            const username = usernameInput.value.trim();
-            const password = passwordInput.value.trim();
+            const username = userInput ? userInput.value.trim() : '';
+            const password = pwdInput ? pwdInput.value.trim() : '';
             const user = users.find(u => u.username === username && u.password === password);
             if (user) {
                 localStorage.setItem('estimateSystemLoggedIn', 'true');
                 localStorage.setItem('estimateSystemUser', JSON.stringify(user));
                 showMainPage(user);
             } else {
-                errorMessage.textContent = '用户名或密码错误';
-                usernameInput.parentElement.style.borderColor = '#e74c3c';
-                passwordInput.parentElement.style.borderColor = '#e74c3c';
+                if (errMsg) errMsg.textContent = '用户名或密码错误';
+                if (userInput) userInput.parentElement.style.borderColor = '#e74c3c';
+                if (pwdInput) pwdInput.parentElement.style.borderColor = '#e74c3c';
                 setTimeout(() => {
-                    usernameInput.parentElement.style.borderColor = 'transparent';
-                    passwordInput.parentElement.style.borderColor = 'transparent';
+                    if (userInput) userInput.parentElement.style.borderColor = 'transparent';
+                    if (pwdInput) pwdInput.parentElement.style.borderColor = 'transparent';
                 }, 2000);
             }
         });
+        console.log('登录表单事件绑定成功');
+    } else {
+        console.error('未找到登录表单元素');
     }
 }
 
