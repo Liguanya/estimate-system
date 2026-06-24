@@ -901,8 +901,7 @@ async function parseWordDocument(file) {
             if (!hasResolved) {
                 console.warn('Word解析超时');
                 hasResolved = true;
-                resolve('[解析超时]
-');
+                resolve('[解析超时]');
             }
         }, 30000);
         
