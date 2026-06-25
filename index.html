@@ -1053,6 +1053,133 @@ async function handleFileUpload(file) {
     }, 200);
 }
 
+// ========== 拖拽上传初始化 ==========
+function initDragDrop() {
+    const uploadArea = document.getElementById('uploadArea');
+    if (!uploadArea) return;
+    
+    // 阻止默认拖拽行为
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        }, false);
+    });
+    
+    // 高亮显示拖拽区域
+    ['dragenter', 'dragover'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, () => {
+            uploadArea.classList.add('drag-over');
+        }, false);
+    });
+    
+    ['dragleave', 'drop'].forEach(eventName => {
+        uploadArea.addEventListener(eventName, () => {
+            uploadArea.classList.remove('drag-over');
+        }, false);
+    });
+    
+    // 处理文件放下
+    uploadArea.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        if (files.length > 0) {
+            const fileInput = document.getElementById('fileInput');
+            // 创建新的 FileList 包装
+            const dataTransfer = new DataTransfer();
+            for (let i = 0; i < files.length; i++) {
+                dataTransfer.items.add(files[i]);
+            }
+            fileInput.files = dataTransfer.files;
+            handleFileSelect({ target: fileInput });
+        }
+    }, false);
+    
+    console.log('拖拽上传初始化成功');
+}
+
+// ========== 自动填表 ==========
+function autoFillForm(info) {
+    if (!info) return;
+    
+    try {
+        if (document.getElementById('projectName')) {
+            document.getElementById('projectName').value = info.name || '';
+        }
+        if (document.getElementById('projectAddress')) {
+            document.getElementById('projectAddress').value = info.address || '天津市';
+        }
+        if (document.getElementById('buildingStructure')) {
+            document.getElementById('buildingStructure').value = info.structure || '框架结构';
+        }
+        if (document.getElementById('businessType')) {
+            document.getElementById('businessType').value = info.bizType || '学校类';
+        }
+        if (document.getElementById('regionFactor')) {
+            document.getElementById('regionFactor').value = '1.0';
+        }
+        
+        // 栋号列表
+        if (info.buildings && info.buildings.length > 0) {
+            const list = document.getElementById('buildingList');
+            if (list) {
+                list.innerHTML = '';
+                info.buildings.forEach(b => {
+                    const div = document.createElement('div');
+                    div.className = 'building-item';
+                    div.textContent = `${b.name}（${b.area}m²/${b.floors || ""}）`;
+                    list.appendChild(div);
+                });
+            }
+        }
+        
+        console.log('自动填表完成:', info);
+    } catch(e) {
+        console.error('自动填表失败:', e);
+    }
+}
+
+// ========== 显示提取结果 ==========
+function showExtractionResults(info) {
+    if (!info) return;
+    
+    try {
+        // 生成提取结果摘要
+        let resultHTML = '<div style="text-align:left;padding:10px;">';
+        resultHTML += `<p><strong>项目名称：</strong>${info.name || '未识别'}</p>`;
+        resultHTML += `<p><strong>总建筑面积：</strong>${info.totalArea > 0 ? info.totalArea + ' m²' : '未识别'}</p>`;
+        resultHTML += `<p><strong>建筑栋号：</strong>${info.buildings.length > 0 ? info.buildings.map(b => b.name).join('、') : '未识别'}</p>`;
+        resultHTML += `<p><strong>业态类型：</strong>${info.bizType || '学校类'}</p>`;
+        
+        if (info.mep) {
+            resultHTML += '<hr style="margin:10px 0;">';
+            resultHTML += '<p><strong>机电系统：</strong></p>';
+            for (const [sys, data] of Object.entries(info.mep)) {
+                if (data.系统 && data.系统.length > 0) {
+                    resultHTML += `<p style="margin-left:15px;"><em>${sys}：</em>${data.系统.slice(0,3).join('、')}</p>`;
+                }
+            }
+        }
+        
+        if (info.warnings && info.warnings.length > 0) {
+            resultHTML += '<hr style="margin:10px 0;">';
+            resultHTML += '<p style="color:#e67e22;"><strong>⚠ 未能识别的信息：</strong></p>';
+            info.warnings.forEach(w => {
+                resultHTML += `<p style="color:#e67e22;margin-left:15px;">• ${w}</p>`;
+            });
+        }
+        resultHTML += '</div>';
+        
+        showModal('提取结果', resultHTML, [
+            { text: '确定', class: 'btn-primary', onClick: closeModal }
+        ]);
+        
+        console.log('提取结果显示完成');
+    } catch(e) {
+        console.error('显示提取结果失败:', e);
+    }
+}
+
 async function simulateFileProcessing(file) {
     document.getElementById('step2').classList.add('active');
     document.getElementById('statusMessage').textContent = '正在解析Word文档...';
