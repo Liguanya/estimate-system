@@ -25,9 +25,11 @@ document.addEventListener('DOMContentLoaded', function() {
     navList = document.getElementById('navList');
     
     // 初始化功能（已移除登录系统）
+    console.log('开始初始化... navList:', document.getElementById('navList'));
     initNavigation();
     initDragDrop();
     loadHuayuanProjectData();
+    console.log('初始化完成');
     
     // 直接显示主页面
     document.getElementById("loginPage").style.display = "none";
@@ -1069,8 +1071,13 @@ function clearBuildingRows() {
 
 // ========== 文件上传相关 ==========
 function initDragDrop() {
+    console.log('initDragDrop 开始执行...');
     const uploadArea = document.getElementById('uploadArea');
-    if (!uploadArea) return;
+    if (!uploadArea) {
+        console.error('uploadArea未找到!');
+        return;
+    }
+    console.log('uploadArea已找到，绑定拖放事件');
     
     uploadArea.addEventListener('dragover', function(e) {
         e.preventDefault();
