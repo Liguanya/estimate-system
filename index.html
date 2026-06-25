@@ -1453,6 +1453,98 @@ function extractProjectInfo(text) {
     info.消防.系统 = [...new Set(info.消防.系统)].slice(0, 8);
     info.消防.设备 = [...new Set(info.消防.设备)].slice(0, 5);
 
+    // ========== 辅助函数：从Markdown表格解析设备材料 ==========
+function parseDeviceTables(text) {
+    const result = {
+        '给排水': [],
+        '暖通': [],
+        '电气': [],
+        '弱电': [],
+        '消防': []
+    };
+    
+    // 设备关键词（用于识别表格中的设备行）
+    const equipKeywords = [
+        // 给排水
+        '泵', '箱', '罐', '池', '器', '阀', '表', '栓', '喷头', '探测器', '气压罐', '无负压', '变频', '紫外线', '阀门', '水处理', '热水器', '热泵',
+        // 暖通
+        '机组', '风机', '盘管', '空调', '主机', '冷机', '热泵', '换热', '末端', '风口', '风阀', '冷却塔', '锅炉', '暖气',
+        // 电气
+        '柜', '箱', '变压器', '发电机', 'EPS', 'UPS', '开关', '断路器', '仪表', '灯具', '插座', '配电箱', '低压柜', '高压柜', '母线', '电缆',
+        // 弱电
+        '交换机', '摄像头', '摄像机', '录像机', '硬盘', '服务器', '面板', '模块', '读卡器', '门禁', '报警', '探头', '扬声器', '功放', '话筒', '屏', '显示',
+        // 消防
+        '报警', '探头', '按钮', '模块', '电话', '广播', '控制', '探测器', '喷头', '灭火', '声光', '警报', '防火门'
+    ];
+    
+    // 分类关键词（表头行）
+    const categoryKeywords = {
+        '给排水': ['给排水', '水专业', '给水', '排水', '消防水'],
+        '暖通': ['暖通', '空调', '通风', '采暖', ' HVAC'],
+        '电气': ['电气', '强电', '配电', '照明'],
+        '弱电': ['弱电', '智能化', '综合布线', '安防', '网络', '广播'],
+        '消防': ['消防', '火灾', '报警', '防排烟']
+    };
+    
+    // 按行分割
+    const lines = text.split('\n');
+    let currentCategory = null;
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        
+        // 检测表头行（包含分类关键词）
+        for (const [cat, keywords] of Object.entries(categoryKeywords)) {
+            for (const kw of keywords) {
+                if (line.includes(kw) && (line.includes('|') || line.length < 200)) {
+                    currentCategory = cat;
+                    break;
+                }
+            }
+            if (currentCategory) break;
+        }
+        
+        // 检测表格行（markdown pipe格式）
+        if (line.startsWith('|') && line.endsWith('|') && line.includes('|')) {
+            // 排除分隔行
+            if (!/^\|[\s\-:|]+\|$/.test(line)) {
+                const cells = line.split('|').filter(c => c.trim() !== '');
+                
+                let isEquipRow = false;
+                for (const cell of cells) {
+                    const cellText = cell.trim();
+                    for (const kw of equipKeywords) {
+                        if (cellText.includes(kw) && cellText.length > 2 && cellText.length < 100) {
+                            isEquipRow = true;
+                            break;
+                        }
+                    }
+                    if (isEquipRow) break;
+                }
+                
+                if (isEquipRow && currentCategory) {
+                    for (const cell of cells) {
+                        const cellText = cell.trim();
+                        if (cellText.length > 2 && cellText.length < 80 && 
+                            !/^[\d.,]+$/.test(cellText) &&
+                            !/^(m|m2|m3|kw|kva|套|个|台|只)$/i.test(cellText)) {
+                            if (!result[currentCategory].includes(cellText)) {
+                                result[currentCategory].push(cellText);
+                            }
+                        }
+                    }
+                }
+            }
+        } else if (line === '' || !line.startsWith('|')) {
+            if (!line.includes('|')) {
+                currentCategory = null;
+            }
+        }
+    }
+    
+    return result;
+}
+
     // ========== 第十一步：从Markdown表格解析主要设备材料表 ==========
     const deviceTableEquipments = parseDeviceTables(text);
     if (deviceTableEquipments) {
